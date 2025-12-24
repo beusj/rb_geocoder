@@ -32,6 +32,32 @@ import jellyfish
 import json
 import time
 
+# Add parent directory to path to import from census
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from census.zip_dl import COUNTY_LEVEL_TYPES
+# Add parent directory to path to import from census
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from census.zip_dl import COUNTY_LEVEL_TYPES
+
+
+def find_tiger_files(tiger_dir: Path, county_code: str, file_type: str) -> List[Path]:
+    """
+    Find TIGER/Line files in directory tree.
+    
+    Args:
+        tiger_dir: Base TIGER directory
+        county_code: County FIPS code
+        file_type: File type (e.g., 'edges', 'addr', 'featnames')
+    
+    Returns:
+        List of matching file paths
+    """
+    pattern = f"*_{county_code}_{file_type}.zip"
+    # Search in both top-level and one level deep
+    files = list(tiger_dir.glob(pattern)) + list(tiger_dir.glob(f"*/{pattern}"))
+    return files
+
+
 class ImportState:
     """Track import state for resuming interrupted imports."""
     
@@ -261,53 +287,53 @@ def process_county(conn: duckdb.DuckDBPyConnection, county_code: str, tiger_dir:
     
     # Find and extract ZIP files
     files_found = False
+    all_files_already_imported = True
     processed_files = []
     
     # Edge files (roads/streets)
-    edges_pattern = f"*_{county_code}_edges.zip"
-    edges_files = list(tiger_dir.glob(edges_pattern)) + list(tiger_dir.glob(f"*/*_{county_code}_edges.zip"))
+    edges_files = find_tiger_files(tiger_dir, county_code, 'edges')
     
     if edges_files:
         edge_file = edges_files[0]
+        files_found = True
         
         # Check if already imported
         if state and state.is_completed(str(edge_file)):
             if verbose:
                 print(f"  Skipping {edge_file.name} (already imported)")
-            return True
-        
-        try:
-            files_found = True
-            with zipfile.ZipFile(edge_file, 'r') as zip_ref:
-                zip_ref.extractall(temp_dir)
-            
-            # Import edges shapefile
-            shp_file = list(temp_dir.glob("*_edges.shp"))
-            if shp_file:
-                import_shapefile(conn, str(shp_file[0]), "tiger_edges", verbose)
-                processed_files.append(edge_file)
-        except Exception as e:
-            error_msg = f"Error processing edges file: {e}"
-            if verbose:
-                print(f"  {error_msg}")
-            if state:
-                state.mark_failed(str(edge_file), county_code, error_msg)
-            return False
+        else:
+            all_files_already_imported = False
+            try:
+                with zipfile.ZipFile(edge_file, 'r') as zip_ref:
+                    zip_ref.extractall(temp_dir)
+                
+                # Import edges shapefile
+                shp_file = list(temp_dir.glob("*_edges.shp"))
+                if shp_file:
+                    import_shapefile(conn, str(shp_file[0]), "tiger_edges", verbose)
+                    processed_files.append(edge_file)
+            except Exception as e:
+                error_msg = f"Error processing edges file: {e}"
+                if verbose:
+                    print(f"  {error_msg}")
+                if state:
+                    state.mark_failed(str(edge_file), county_code, error_msg)
+                return False
     
     # Address range files
-    addr_pattern = f"*_{county_code}_addr.zip"
-    addr_files = list(tiger_dir.glob(addr_pattern)) + list(tiger_dir.glob(f"*/*_{county_code}_addr.zip"))
+    addr_files = find_tiger_files(tiger_dir, county_code, 'addr')
     
     if addr_files:
         addr_file = addr_files[0]
+        files_found = True
         
         # Check if already imported
         if state and state.is_completed(str(addr_file)):
             if verbose:
                 print(f"  Skipping {addr_file.name} (already imported)")
         else:
+            all_files_already_imported = False
             try:
-                files_found = True
                 with zipfile.ZipFile(addr_file, 'r') as zip_ref:
                     zip_ref.extractall(temp_dir)
                 processed_files.append(addr_file)
@@ -319,19 +345,19 @@ def process_county(conn: duckdb.DuckDBPyConnection, county_code: str, tiger_dir:
                     state.mark_failed(str(addr_file), county_code, error_msg)
     
     # Feature names files
-    featnames_pattern = f"*_{county_code}_featnames.zip"
-    featnames_files = list(tiger_dir.glob(featnames_pattern)) + list(tiger_dir.glob(f"*/*_{county_code}_featnames.zip"))
+    featnames_files = find_tiger_files(tiger_dir, county_code, 'featnames')
     
     if featnames_files:
         featnames_file = featnames_files[0]
+        files_found = True
         
         # Check if already imported
         if state and state.is_completed(str(featnames_file)):
             if verbose:
                 print(f"  Skipping {featnames_file.name} (already imported)")
         else:
+            all_files_already_imported = False
             try:
-                files_found = True
                 with zipfile.ZipFile(featnames_file, 'r') as zip_ref:
                     zip_ref.extractall(temp_dir)
                 processed_files.append(featnames_file)
@@ -346,6 +372,12 @@ def process_county(conn: duckdb.DuckDBPyConnection, county_code: str, tiger_dir:
         if verbose:
             print(f"  No TIGER files found for county {county_code}")
         return False
+    
+    # If all files were already imported, return True
+    if all_files_already_imported:
+        if verbose:
+            print(f"  All files already imported for county {county_code}")
+        return True
     
     # Transform and load the data
     # This would include the SQL from convert.sql
@@ -433,7 +465,7 @@ def import_tiger_data(database_path: str, tiger_dir: str, counties: Optional[Lis
         county_codes = counties
     else:
         # Find all counties from ZIP files
-        edge_files = list(tiger_path.glob("*_edges.zip")) + list(tiger_path.glob("*/*_edges.zip"))
+        edge_files = find_tiger_files(tiger_path, '*', 'edges')
         county_codes = set()
         for f in edge_files:
             # Extract county code from filename: tl_YYYY_CCCCC_edges.zip
@@ -457,8 +489,7 @@ def import_tiger_data(database_path: str, tiger_dir: str, counties: Optional[Lis
         
         for county_code in county_codes:
             # Check if already imported
-            edge_pattern = f"*_{county_code}_edges.zip"
-            edge_files = list(tiger_path.glob(edge_pattern)) + list(tiger_path.glob(f"*/{edge_pattern}"))
+            edge_files = find_tiger_files(tiger_path, county_code, 'edges')
             
             if edge_files and import_state and import_state.is_completed(str(edge_files[0])):
                 skipped += 1

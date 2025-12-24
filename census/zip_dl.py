@@ -37,6 +37,10 @@ import random
 import json
 import hashlib
 
+# Constants
+USER_AGENT = 'TIGERLine-Downloader/1.0'
+COUNTY_LEVEL_TYPES = ['EDGES', 'ADDR', 'FACES', 'FEATNAMES']
+
 # State FIPS codes
 STATES = {
     '01': 'Alabama', '02': 'Alaska', '04': 'Arizona', '05': 'Arkansas',
@@ -218,7 +222,7 @@ def download_file(url: str, output_path: Path, retries: int = 8, timeout: int = 
             output_path.parent.mkdir(parents=True, exist_ok=True)
             
             # Add timeout to urllib request
-            req = urllib.request.Request(url, headers={'User-Agent': 'TIGERLine-Downloader/1.0'})
+            req = urllib.request.Request(url, headers={'User-Agent': USER_AGENT})
             
             with urllib.request.urlopen(req, timeout=timeout) as response:
                 # Download to temporary file first
@@ -329,7 +333,7 @@ def download_county_data(state_fips: str, year: int, output_dir: Path,
     
     download_tasks = []
     for dataset_type in dataset_types:
-        if dataset_type in ['EDGES', 'ADDR', 'FACES', 'FEATNAMES']:
+        if dataset_type in COUNTY_LEVEL_TYPES:
             # County-level datasets
             for county_fips in counties:
                 url = construct_url(year, state_fips, county_fips, dataset_type)
@@ -360,7 +364,7 @@ def download_county_data(state_fips: str, year: int, output_dir: Path,
     
     # Calculate skipped count
     if state:
-        total_possible = len(counties) * len([t for t in dataset_types if t in ['EDGES', 'ADDR', 'FACES', 'FEATNAMES']])
+        total_possible = len(counties) * len([t for t in dataset_types if t in COUNTY_LEVEL_TYPES])
         total_possible += len([t for t in dataset_types if t not in ['EDGES', 'ADDR', 'FACES', 'FEATNAMES']])
         skipped = total_possible - len(download_tasks)
     
@@ -463,7 +467,7 @@ def main():
             return 1
     else:
         # Default to the most commonly used types for geocoding
-        type_list = ['EDGES', 'ADDR', 'FACES', 'FEATNAMES']
+        type_list = COUNTY_LEVEL_TYPES
     
     output_dir = Path(args.output)
     output_dir.mkdir(parents=True, exist_ok=True)

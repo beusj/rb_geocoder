@@ -35,7 +35,7 @@ from typing import Optional
 # Add parent directory to path to import from census and tools
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from census.zip_dl import download_county_data, DownloadState, STATES, DATASET_TYPES
+from census.zip_dl import download_county_data, DownloadState, STATES, DATASET_TYPES, COUNTY_LEVEL_TYPES
 from tools.tiger_import_duckdb import import_tiger_data
 
 
@@ -158,7 +158,7 @@ def run_workflow(database: str, output_dir: str, states: Optional[list] = None,
     if types:
         type_list = types
     else:
-        type_list = ['EDGES', 'ADDR', 'FACES', 'FEATNAMES']
+        type_list = COUNTY_LEVEL_TYPES
     
     print(f"\n{'='*70}")
     print(f"TIGER/Line Download and Import Workflow")
