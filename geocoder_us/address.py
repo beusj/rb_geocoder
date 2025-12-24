@@ -29,7 +29,7 @@ class Address:
     
     # Regex patterns for address components
     PATTERNS = {
-        'number': re.compile(r'^(\d+\w*|[a-z]+)?(\d+)([a-z]?)\b', re.IGNORECASE),
+        'number': re.compile(r'^\s*(\d+)([a-z])?\s+', re.IGNORECASE),
         'street': re.compile(r'(?:\b(?:\d+\w*|[a-z\'-]+)\s*)+', re.IGNORECASE),
         'city': re.compile(r'(?:\b[a-z\'-]+\s*)+', re.IGNORECASE),
         'state': None,  # Built from STATE constant
@@ -94,6 +94,7 @@ class Address:
     def _parse(self):
         """Parse the address text into components."""
         text = self.text.lower()
+        original_text = text
         
         # Extract ZIP code
         zip_match = self.PATTERNS['zip'].search(text)
@@ -117,30 +118,57 @@ class Address:
             self.full_state = ''
             self.state = ''
         
-        # Extract house number
-        number_match = self.PATTERNS['number'].search(text)
+        # Extract house number - look at the beginning of the original text
+        number_match = self.PATTERNS['number'].search(original_text)
         if number_match:
-            self.prenum, self.number, self.sufnum = number_match.groups()
-            self.prenum = (self.prenum or '').strip()
-            self.number = (self.number or '').strip()
-            self.sufnum = (self.sufnum or '').strip()
-            text = text[:number_match.start()] + text[number_match.end():]
-            text = re.sub(r'^\s*,?\s*', '', text)
+            groups = number_match.groups()
+            self.number = (groups[0] or '').strip()
+            self.sufnum = (groups[1] or '').strip() if len(groups) > 1 else ''
+            self.prenum = ''
+            # Remove number from text
+            num_str = number_match.group(0)
+            if num_str.strip() in text:
+                text = text.replace(num_str.strip(), '', 1)
+                text = re.sub(r'^\s*,?\s*', '', text)
         else:
             self.prenum = self.number = self.sufnum = ''
         
-        # Extract street
-        street_matches = self.PATTERNS['street'].findall(text)
-        self.street = self._expand_streets(street_matches)
+        # Extract street and city from remaining text
+        # Split by comma - typically street, city format
+        remaining_parts = [p.strip() for p in text.split(',')]
+        
+        if len(remaining_parts) >= 2:
+            # Likely format: street, city
+            street_text = remaining_parts[0]
+            city_text = remaining_parts[-1]
+        elif len(remaining_parts) == 1 and remaining_parts[0]:
+            # Could be just street or just city
+            if self.number:
+                # If we have a number, this is likely the street
+                street_text = remaining_parts[0]
+                city_text = ''
+            else:
+                # No number, likely just a city/place
+                street_text = ''
+                city_text = remaining_parts[0]
+        else:
+            street_text = ''
+            city_text = ''
+        
+        # Parse street
+        if street_text:
+            street_matches = self.PATTERNS['street'].findall(street_text)
+            self.street = self._expand_streets(street_matches)
+        else:
+            self.street = []
         
         # Special case: use state name as street if no street found
         if not self.street and self.state and self.full_state.lower() != self.state.lower():
             self.street = [self.full_state]
         
-        # Extract city (last remaining word group)
-        city_matches = self.PATTERNS['city'].findall(text)
-        if city_matches:
-            self.city = [city_matches[-1].strip()]
+        # Parse city
+        if city_text:
+            self.city = [city_text.strip()]
             # Expand abbreviations in city name
             expanded = [NAME_ABBR.regexp.sub(lambda m: NAME_ABBR[m.group(0)], city) for city in self.city]
             self.city.extend(expanded)
@@ -150,7 +178,7 @@ class Address:
         
         # Special case: use state as city if no city found
         if self.state and self.full_state.lower() != self.state.lower():
-            if self.full_state not in self.city:
+            if self.full_state.lower() not in self.city:
                 self.city.append(self.full_state.lower())
     
     def _expand_streets(self, streets: List[str]) -> List[str]:
