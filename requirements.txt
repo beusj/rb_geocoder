@@ -1,0 +1,14 @@
+# Python Geocoder Requirements
+# Core database
+duckdb>=0.9.0
+
+# String matching and phonetic algorithms
+jellyfish>=1.0.0  # Provides metaphone and Levenshtein distance
+rapidfuzz>=3.0.0  # Fast fuzzy string matching
+
+# Optional geospatial libraries
+# shapely>=2.0.0  # Geometry operations (optional, DuckDB spatial handles most)
+
+# Development/testing
+pytest>=7.4.0
+pytest-cov>=4.1.0
