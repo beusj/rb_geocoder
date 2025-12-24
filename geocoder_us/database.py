@@ -43,12 +43,16 @@ class Database:
             self.connection.execute("INSTALL spatial;")
             self.connection.execute("LOAD spatial;")
         except Exception as e:
+            # Spatial extension may already be loaded - this is not critical
             if self.debug:
                 print(f"Note: Spatial extension may already be loaded: {e}")
         
         # Configure DuckDB performance settings
+        # Use available CPU cores for parallel queries
+        import os
+        num_threads = os.cpu_count() or 4
         self.connection.execute(f"SET memory_limit='{cache_size_mb}MB';")
-        self.connection.execute("SET threads TO 4;")  # Use multiple cores
+        self.connection.execute(f"SET threads TO {num_threads};")
         
         # Create custom metaphone function using jellyfish
         self.connection.create_function("metaphone", self._metaphone, parameters=[str, int], return_type=str)
@@ -83,7 +87,8 @@ class Database:
         try:
             result = jellyfish.metaphone(text)
             return result[:length] if result else ""
-        except:
+        except (ValueError, TypeError) as e:
+            # Fallback to truncated input if metaphone fails
             return text[:length]
     
     def _execute(self, sql: str, params: Optional[List] = None) -> List[Dict[str, Any]]:
