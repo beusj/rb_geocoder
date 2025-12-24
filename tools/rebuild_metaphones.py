@@ -21,7 +21,7 @@ import jellyfish
 from pathlib import Path
 
 
-# Add parent directory to path to import shared utilities
+# Import database validation utility
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from tools.utils import validate_database_extension
 
