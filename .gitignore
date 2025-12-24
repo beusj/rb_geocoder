@@ -7,3 +7,6 @@ src/shp2sqlite/shp2sqlite
 src/liblwgeom/liblwgeom.a
 doc/*.html
 *.log
+
+# census data
+*.zip
