@@ -144,6 +144,34 @@ The DuckDB database should have the following tables:
 - `range` - Address range data
 - `feature_edge` - Join table
 
+### Building a Database from TIGER/Line Data
+
+The Python/DuckDB version includes tools to build databases from TIGER/Line shapefiles:
+
+```bash
+# Step 1: Download TIGER/Line data
+python census/zip_dl.py --states 06 --output /data/tiger2024/
+
+# Step 2: Import into DuckDB
+python tools/tiger_import_duckdb.py geocoder.db /data/tiger2024/ --verbose
+
+# Step 3: Generate metaphones
+python tools/rebuild_metaphones.py geocoder.db --verbose
+```
+
+See `tools/README.md` for detailed instructions on:
+- Importing TIGER/Line shapefiles
+- Generating metaphone codes
+- Building indexes
+- Performance tuning
+
+**Advantages over Ruby version:**
+- ✅ No C compilation required (no shp2sqlite binary)
+- ✅ Pure Python implementation
+- ✅ DuckDB reads shapefiles directly
+- ✅ Faster bulk operations
+- ✅ Cross-platform (Windows, Mac, Linux)
+
 ### Converting from SQLite to DuckDB
 
 ```python
