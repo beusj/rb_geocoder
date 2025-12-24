@@ -83,14 +83,14 @@ def demo_comparison():
 Ruby Version:
 -------------
 require 'geocoder/us'
-db = Geocoder::US::Database.new("/path/to/geocoder.db")
+db = Geocoder::US::Database.new("/path/to/geocoder.duckdb")
 results = db.geocode("1600 Pennsylvania Ave, Washington DC")
 puts results[0][:lat]  # Access as hash
 
 Python Version:
 --------------
 from geocoder_us import Database
-db = Database("/path/to/geocoder.db")
+db = Database("/path/to/geocoder.duckdb")
 results = db.geocode("1600 Pennsylvania Ave, Washington DC")
 print(results[0]['lat'])  # Access as dict
 
@@ -121,7 +121,7 @@ def main():
     else:
         print("\n" + "=" * 70)
         print("To test geocoding, run:")
-        print(f"  python {sys.argv[0]} /path/to/geocoder.db")
+        print(f"  python {sys.argv[0]} /path/to/geocoder.duckdb")
         print("=" * 70)
 
 

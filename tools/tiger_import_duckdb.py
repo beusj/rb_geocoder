@@ -15,8 +15,8 @@ Usage:
     python tiger_import_duckdb.py <database> <tiger_directory> [options]
 
 Example:
-    python tiger_import_duckdb.py geocoder.db /data/tiger2024/ --verbose
-    python tiger_import_duckdb.py geocoder.db /data/tiger2024/ --progressive --cleanup
+    python tiger_import_duckdb.py geocoder.duckdb /data/tiger2024/ --verbose
+    python tiger_import_duckdb.py geocoder.duckdb /data/tiger2024/ --progressive --cleanup
 """
 
 import os
@@ -31,6 +31,31 @@ from typing import List, Optional
 import jellyfish
 import json
 import time
+
+
+def validate_database_extension(database_path: str) -> str:
+    """
+    Validate database file extension is .duckdb or .db.
+    
+    Args:
+        database_path: Path to database file
+        
+    Returns:
+        Validated database path
+        
+    Raises:
+        ValueError: If extension is not .duckdb or .db
+    """
+    path = Path(database_path)
+    extension = path.suffix.lower()
+    
+    if extension not in ['.duckdb', '.db']:
+        raise ValueError(
+            f"Invalid database extension '{extension}'. "
+            f"Database file must have extension .duckdb or .db"
+        )
+    
+    return database_path
 
 # Add parent directory to path to import from census
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -541,20 +566,20 @@ def main():
         epilog="""
 Examples:
   # Import all counties
-  python tiger_import_duckdb.py geocoder.db /data/tiger2024/
+  python tiger_import_duckdb.py geocoder.duckdb /data/tiger2024/
 
   # Import specific counties
-  python tiger_import_duckdb.py geocoder.db /data/tiger2024/ --counties 06075 06001
+  python tiger_import_duckdb.py geocoder.duckdb /data/tiger2024/ --counties 06075 06001
 
   # Progressive loading with cleanup
-  python tiger_import_duckdb.py geocoder.db /data/tiger2024/ --progressive --cleanup --verbose
+  python tiger_import_duckdb.py geocoder.duckdb /data/tiger2024/ --progressive --cleanup --verbose
 
   # Resume interrupted import
-  python tiger_import_duckdb.py geocoder.db /data/tiger2024/ --state-file .tiger_import_state.json --verbose
+  python tiger_import_duckdb.py geocoder.duckdb /data/tiger2024/ --state-file .tiger_import_state.json --verbose
         """
     )
     
-    parser.add_argument('database', help='Path to DuckDB database file')
+    parser.add_argument('database', help='Path to DuckDB database file (.duckdb or .db extension required)')
     parser.add_argument('tiger_dir', help='Directory containing TIGER/Line ZIP files')
     parser.add_argument('--counties', nargs='+', help='Specific county codes to import')
     parser.add_argument('-v', '--verbose', action='store_true', help='Verbose output')
@@ -566,6 +591,12 @@ Examples:
                        help='Path to state file for tracking import progress')
     
     args = parser.parse_args()
+    
+    # Validate database extension
+    try:
+        validate_database_extension(args.database)
+    except ValueError as e:
+        parser.error(str(e))
     
     return import_tiger_data(args.database, args.tiger_dir, args.counties, args.verbose,
                             args.progressive, args.cleanup, args.state_file)

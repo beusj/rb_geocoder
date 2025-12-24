@@ -64,7 +64,7 @@ pip install -r requirements.txt
 from geocoder_us import Database
 
 # Open database connection
-db = Database("/path/to/geocoder.db")
+db = Database("/path/to/geocoder.duckdb")
 
 # Geocode an address
 results = db.geocode("1600 Pennsylvania Ave, Washington DC")
@@ -79,7 +79,7 @@ for result in results:
 ```python
 from geocoder_us import Database
 
-with Database("/path/to/geocoder.db") as db:
+with Database("/path/to/geocoder.duckdb") as db:
     results = db.geocode("123 Main St, New York NY")
     print(results)
 ```
@@ -156,10 +156,10 @@ The Python/DuckDB version includes tools to build databases from TIGER/Line shap
 python census/zip_dl.py --states 06 --output ./data/tiger/
 
 # Step 2: Import into DuckDB
-python tools/tiger_import_duckdb.py geocoder.db ./data/tiger/ --verbose
+python tools/tiger_import_duckdb.py geocoder.duckdb ./data/tiger/ --verbose
 
 # Step 3: Generate metaphones
-python tools/rebuild_metaphones.py geocoder.db --verbose
+python tools/rebuild_metaphones.py geocoder.duckdb --verbose
 ```
 
 See `tools/README.md` for detailed instructions on:
@@ -238,14 +238,14 @@ If you're migrating from the Ruby version:
 **Ruby:**
 ```ruby
 require 'geocoder/us'
-db = Geocoder::US::Database.new("/path/to/geocoder.db")
+db = Geocoder::US::Database.new("/path/to/geocoder.duckdb")
 results = db.geocode("1600 Pennsylvania Ave, Washington DC")
 ```
 
 **Python:**
 ```python
 from geocoder_us import Database
-db = Database("/path/to/geocoder.db")
+db = Database("/path/to/geocoder.duckdb")
 results = db.geocode("1600 Pennsylvania Ave, Washington DC")
 ```
 
