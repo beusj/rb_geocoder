@@ -33,36 +33,10 @@ import json
 import time
 
 
-def validate_database_extension(database_path: str) -> str:
-    """
-    Validate database file extension is .duckdb or .db.
-    
-    Args:
-        database_path: Path to database file
-        
-    Returns:
-        Validated database path
-        
-    Raises:
-        ValueError: If extension is not .duckdb or .db
-    """
-    path = Path(database_path)
-    extension = path.suffix.lower()
-    
-    if extension not in ['.duckdb', '.db']:
-        raise ValueError(
-            f"Invalid database extension '{extension}'. "
-            f"Database file must have extension .duckdb or .db"
-        )
-    
-    return database_path
-
 # Add parent directory to path to import from census
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from census.zip_dl import COUNTY_LEVEL_TYPES
-# Add parent directory to path to import from census
-sys.path.insert(0, str(Path(__file__).parent.parent))
-from census.zip_dl import COUNTY_LEVEL_TYPES
+from tools.utils import validate_database_extension
 
 
 def find_tiger_files(tiger_dir: Path, county_code: str, file_type: str) -> List[Path]:

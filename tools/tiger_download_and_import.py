@@ -36,7 +36,8 @@ from typing import Optional
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from census.zip_dl import download_county_data, DownloadState, STATES, DATASET_TYPES, COUNTY_LEVEL_TYPES
-from tools.tiger_import_duckdb import import_tiger_data, validate_database_extension
+from tools.tiger_import_duckdb import import_tiger_data
+from tools.utils import validate_database_extension
 
 
 class WorkflowState:

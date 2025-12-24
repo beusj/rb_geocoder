@@ -131,21 +131,21 @@ class TestDatabase:
     
     def test_validate_database_extension_valid_duckdb(self):
         """Test validation accepts .duckdb extension."""
-        from tools.tiger_import_duckdb import validate_database_extension
+        from tools.utils import validate_database_extension
         
         result = validate_database_extension("geocoder.duckdb")
         assert result == "geocoder.duckdb"
     
     def test_validate_database_extension_valid_db(self):
         """Test validation accepts .db extension."""
-        from tools.tiger_import_duckdb import validate_database_extension
+        from tools.utils import validate_database_extension
         
         result = validate_database_extension("geocoder.db")
         assert result == "geocoder.db"
     
     def test_validate_database_extension_invalid(self):
         """Test validation rejects invalid extensions."""
-        from tools.tiger_import_duckdb import validate_database_extension
+        from tools.utils import validate_database_extension
         
         with pytest.raises(ValueError, match="Invalid database extension"):
             validate_database_extension("geocoder.sqlite")
@@ -158,7 +158,7 @@ class TestDatabase:
     
     def test_validate_database_extension_case_insensitive(self):
         """Test validation is case insensitive."""
-        from tools.tiger_import_duckdb import validate_database_extension
+        from tools.utils import validate_database_extension
         
         assert validate_database_extension("geocoder.DUCKDB") == "geocoder.DUCKDB"
         assert validate_database_extension("geocoder.DB") == "geocoder.DB"
