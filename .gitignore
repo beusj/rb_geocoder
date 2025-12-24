@@ -1,3 +1,10 @@
+# data
+**/data/*
+*.zip
+*.csv
+*.tar.gz
+*.db
+
 # Python
 __pycache__/
 *.py[cod]
