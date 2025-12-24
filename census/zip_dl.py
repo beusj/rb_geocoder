@@ -123,21 +123,23 @@ def download_file(url: str, output_path: Path, retries: int = 3) -> tuple:
     for attempt in range(retries):
         try:
             output_path.parent.mkdir(parents=True, exist_ok=True)
-            
-            # Check if file already exists
             if output_path.exists():
                 return (True, url, f"Already exists: {output_path.name}")
-            
-            # Download with progress
             urllib.request.urlretrieve(url, output_path)
             file_size = output_path.stat().st_size
             return (True, url, f"Downloaded: {output_path.name} ({file_size:,} bytes)")
-            
         except urllib.error.HTTPError as e:
             if e.code == 404:
                 return (False, url, f"Not found (404): {url}")
+            elif e.code == 524:
+                # Retry 524 errors more times
+                if attempt < retries + 2:
+                    time.sleep(5 * (attempt + 1))
+                    continue
+                else:
+                    return (False, url, f"HTTP Error 524 (timeout): {url}")
             elif attempt < retries - 1:
-                time.sleep(1 * (attempt + 1))  # Exponential backoff
+                time.sleep(1 * (attempt + 1))
             else:
                 return (False, url, f"HTTP Error {e.code}: {url}")
         except Exception as e:
@@ -145,7 +147,6 @@ def download_file(url: str, output_path: Path, retries: int = 3) -> tuple:
                 time.sleep(1 * (attempt + 1))
             else:
                 return (False, url, f"Error: {str(e)}")
-    
     return (False, url, "Failed after retries")
 
 def download_county_data(state_fips: str, year: int, output_dir: Path, 
@@ -211,8 +212,8 @@ def main():
     )
     parser.add_argument('--year', type=int, default=2024,
                         help='Year to download (default: 2024)')
-    parser.add_argument('--output', type=str, default='./tiger2024',
-                        help='Output directory (default: ./tiger2024)')
+    parser.add_argument('--output', type=str, default='./tiger',
+                        help='Output directory (default: ./tiger)')
     parser.add_argument('--states', type=str,
                         help='Comma-separated state FIPS codes (e.g., "01,06,48")')
     parser.add_argument('--types', type=str,
