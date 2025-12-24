@@ -150,26 +150,29 @@ class Database:
         if not city:
             city = ""
         
-        # Build metaphone placeholders
-        metaphones = ', '.join([f"metaphone('{part}', 5)" for part in city_parts])
+        # Pre-compute metaphones to avoid SQL injection
+        # (city_parts come from Address parser which already sanitizes input)
+        import re
+        metaphones = [self._metaphone(re.sub(r'[^a-z0-9]', '', part), 5) for part in city_parts]
+        metaphone_placeholders = ', '.join(['?' for _ in metaphones])
         
         if state:
             sql = f"""
                 SELECT *, levenshtein(?, city) AS city_score
                 FROM place
-                WHERE city_phone IN ({metaphones})
+                WHERE city_phone IN ({metaphone_placeholders})
                 AND state = ?
                 ORDER BY priority DESC
             """
-            params = [city, state]
+            params = [city] + metaphones + [state]
         else:
             sql = f"""
                 SELECT *, levenshtein(?, city) AS city_score
                 FROM place
-                WHERE city_phone IN ({metaphones})
+                WHERE city_phone IN ({metaphone_placeholders})
                 ORDER BY priority DESC
             """
-            params = [city]
+            params = [city] + metaphones
         
         return self._execute(sql, params)
     
@@ -178,16 +181,19 @@ class Database:
         if not street_parts or not zips:
             return []
         
-        metaphones = ', '.join([f"metaphone('{part}', 5)" for part in street_parts])
+        # Pre-compute metaphones to avoid SQL injection
+        import re
+        metaphones = [self._metaphone(re.sub(r'[^a-z0-9]', '', part), 5) for part in street_parts]
+        metaphone_placeholders = ', '.join(['?' for _ in metaphones])
         zip_placeholders = ', '.join(['?' for _ in zips])
         
         sql = f"""
             SELECT feature.*, levenshtein(?, street) AS street_score
             FROM feature
-            WHERE street_phone IN ({metaphones})
+            WHERE street_phone IN ({metaphone_placeholders})
             AND feature.zip IN ({zip_placeholders})
         """
-        params = [street] + zips
+        params = [street] + metaphones + zips
         return self._execute(sql, params)
     
     def more_features_by_street_and_zip(self, street: str, street_parts: List[str], zips: List[str]) -> List[Dict]:
@@ -195,19 +201,26 @@ class Database:
         if not street_parts or not zips:
             return []
         
-        metaphones = ', '.join([f"metaphone('{part}', 5)" for part in street_parts])
+        # Pre-compute metaphones to avoid SQL injection
+        import re
+        metaphones = [self._metaphone(re.sub(r'[^a-z0-9]', '', part), 5) for part in street_parts]
+        metaphone_placeholders = ', '.join(['?' for _ in metaphones])
         
         # Use 3-digit ZIP prefixes for broader search
-        zip3s = list(set(z[:3] + '%' for z in zips if z))
+        # Sanitize ZIP codes (should only contain digits)
+        zip3s = list(set(z[:3] + '%' for z in zips if z and z.isdigit()))
         like_conditions = ' OR '.join(['feature.zip LIKE ?' for _ in zip3s])
+        
+        if not like_conditions:
+            return []
         
         sql = f"""
             SELECT feature.*, levenshtein(?, street) AS street_score
             FROM feature
-            WHERE street_phone IN ({metaphones})
+            WHERE street_phone IN ({metaphone_placeholders})
             AND ({like_conditions})
         """
-        params = [street] + zip3s
+        params = [street] + metaphones + zip3s
         return self._execute(sql, params)
     
     def geocode(self, address_str: str, canonical_place: bool = False) -> List[Dict]:

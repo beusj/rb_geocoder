@@ -46,7 +46,7 @@ class Address:
             text: Address string to parse or dict with address components
         """
         if not text:
-            raise ValueError("No text provided")
+            raise ValueError("Address text cannot be empty or None")
         
         if isinstance(text, dict):
             self.text = ""
