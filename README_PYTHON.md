@@ -46,11 +46,14 @@ DuckDB's spatial extension provides all necessary geometry and geography operati
 ## Installation
 
 ```bash
+# create virtual environment
+python -m venv venv
+
+# activate environment
+./venv/bin/activate
+
 # Install Python dependencies
 pip install -r requirements.txt
-
-# Or install individually
-pip install duckdb jellyfish rapidfuzz pytest
 ```
 
 ## Usage
@@ -150,10 +153,10 @@ The Python/DuckDB version includes tools to build databases from TIGER/Line shap
 
 ```bash
 # Step 1: Download TIGER/Line data
-python census/zip_dl.py --states 06 --output /data/tiger2024/
+python census/zip_dl.py --states 06 --output ./data/tiger/
 
 # Step 2: Import into DuckDB
-python tools/tiger_import_duckdb.py geocoder.db /data/tiger2024/ --verbose
+python tools/tiger_import_duckdb.py geocoder.db ./data/tiger/ --verbose
 
 # Step 3: Generate metaphones
 python tools/rebuild_metaphones.py geocoder.db --verbose

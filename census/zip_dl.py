@@ -30,6 +30,7 @@ from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Dict
 import time
+import random
 
 # State FIPS codes
 STATES = {
@@ -115,11 +116,14 @@ def construct_url(year: int, state_fips: str, county_fips: str, dataset_type: st
     
     return url
 
-def download_file(url: str, output_path: Path, retries: int = 3) -> tuple:
+def download_file(url: str, output_path: Path, retries: int = 5) -> tuple:
     """
-    Download a file with retry logic.
+    Download a file with retry logic (exponential backoff with jitter).
     Returns (success: bool, url: str, message: str)
     """
+    base_delay = 1  # seconds
+    max_delay = 30  # seconds
+
     for attempt in range(retries):
         try:
             output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -133,18 +137,25 @@ def download_file(url: str, output_path: Path, retries: int = 3) -> tuple:
                 return (False, url, f"Not found (404): {url}")
             elif e.code == 524:
                 # Retry 524 errors more times
-                if attempt < retries + 2:
-                    time.sleep(5 * (attempt + 1))
+                extra_retries = 2
+                if attempt < retries + extra_retries - 1:
+                    delay = min(base_delay * (2 ** attempt), max_delay)
+                    jitter = delay * 0.5 * random.random()
+                    time.sleep(delay + jitter)
                     continue
                 else:
                     return (False, url, f"HTTP Error 524 (timeout): {url}")
             elif attempt < retries - 1:
-                time.sleep(1 * (attempt + 1))
+                delay = min(base_delay * (2 ** attempt), max_delay)
+                jitter = delay * 0.5 * random.random()
+                time.sleep(delay + jitter)
             else:
                 return (False, url, f"HTTP Error {e.code}: {url}")
         except Exception as e:
             if attempt < retries - 1:
-                time.sleep(1 * (attempt + 1))
+                delay = min(base_delay * (2 ** attempt), max_delay)
+                jitter = delay * 0.5 * random.random()
+                time.sleep(delay + jitter)
             else:
                 return (False, url, f"Error: {str(e)}")
     return (False, url, "Failed after retries")

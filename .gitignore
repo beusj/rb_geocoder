@@ -25,6 +25,7 @@ wheels/
 .coverage
 htmlcov/
 *.cover
+**/*log*
 
 # IDEs
 .vscode/
