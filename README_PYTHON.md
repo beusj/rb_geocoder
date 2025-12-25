@@ -162,11 +162,12 @@ python tools/tiger_import_duckdb.py geocoder.duckdb ./data/tiger/ --verbose
 python tools/rebuild_metaphones.py geocoder.duckdb --verbose
 ```
 
-See `tools/README.md` for detailed instructions on:
-- Importing TIGER/Line shapefiles
+See `DATABASE_BUILD_GUIDE.md` for detailed instructions on:
+- Downloading and importing TIGER/Line shapefiles
 - Generating metaphone codes
 - Building indexes
 - Performance tuning
+- Troubleshooting
 
 **Advantages over Ruby version:**
 - ✅ No C compilation required (no shp2sqlite binary)
@@ -326,6 +327,12 @@ Based on the original Geocoder::US by Schuyler Erle.
 - DuckDB: https://duckdb.org/
 - DuckDB Spatial: https://duckdb.org/docs/extensions/spatial.html
 - TIGER/Line: https://www.census.gov/geographies/mapping-files/time-series/geo/tiger-line-file.html
+
+## Additional Documentation
+
+- [Database Build Guide](DATABASE_BUILD_GUIDE.md) - Complete guide to building databases from TIGER/Line data
+- [Changes Summary](CHANGES_SUMMARY.md) - Implementation changes and improvements
+- [Refactoring Summary](REFACTORING_SUMMARY.md) - Ruby to Python migration rationale
 
 ## Support
 
