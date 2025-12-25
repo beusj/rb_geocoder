@@ -20,6 +20,25 @@ try:
 except ImportError:
     DUCKDB_AVAILABLE = False
 
+# State FIPS codes (duplicated from zip_dl.py to avoid circular import)
+STATES = {
+    '01': 'Alabama', '02': 'Alaska', '04': 'Arizona', '05': 'Arkansas',
+    '06': 'California', '08': 'Colorado', '09': 'Connecticut', '10': 'Delaware',
+    '11': 'District of Columbia', '12': 'Florida', '13': 'Georgia', '15': 'Hawaii',
+    '16': 'Idaho', '17': 'Illinois', '18': 'Indiana', '19': 'Iowa',
+    '20': 'Kansas', '21': 'Kentucky', '22': 'Louisiana', '23': 'Maine',
+    '24': 'Maryland', '25': 'Massachusetts', '26': 'Michigan', '27': 'Minnesota',
+    '28': 'Mississippi', '29': 'Missouri', '30': 'Montana', '31': 'Nebraska',
+    '32': 'Nevada', '33': 'New Hampshire', '34': 'New Jersey', '35': 'New Mexico',
+    '36': 'New York', '37': 'North Carolina', '38': 'North Dakota', '39': 'Ohio',
+    '40': 'Oklahoma', '41': 'Oregon', '42': 'Pennsylvania', '44': 'Rhode Island',
+    '45': 'South Carolina', '46': 'South Dakota', '47': 'Tennessee', '48': 'Texas',
+    '49': 'Utah', '50': 'Vermont', '51': 'Virginia', '53': 'Washington',
+    '54': 'West Virginia', '55': 'Wisconsin', '56': 'Wyoming',
+    '60': 'American Samoa', '66': 'Guam', '69': 'Commonwealth of the Northern Mariana Islands',
+    '72': 'Puerto Rico', '78': 'United States Virgin Islands'
+}
+
 
 class DownloadStateDB:
     """
@@ -197,8 +216,6 @@ class DownloadStateDB:
     
     def _ensure_state_exists(self, state_fips: str):
         """Ensure a state exists in the states table."""
-        from census.zip_dl import STATES
-        
         self.conn.execute("""
             INSERT INTO states (state_fips, name, completed, failed, discovered, last_updated)
             VALUES (?, ?, 0, 0, 0, ?)
@@ -207,8 +224,6 @@ class DownloadStateDB:
     
     def _update_state_stats(self, state_fips: str, status: str):
         """Update statistics for a state/territory."""
-        from census.zip_dl import STATES
-        
         timestamp = time.time()
         
         # Ensure state exists
@@ -262,7 +277,6 @@ class DownloadStateDB:
                     'urls': []
                 }
             else:
-                from census.zip_dl import STATES
                 return {
                     'name': STATES.get(state_fips, f"State {state_fips}"),
                     'completed': 0,

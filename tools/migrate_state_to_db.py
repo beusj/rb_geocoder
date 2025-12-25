@@ -61,8 +61,9 @@ def main():
         print(f"Migration completed successfully!")
         print(f"{'='*70}")
         print(f"\nYou can now use the DuckDB state file with:")
-        print(f"  python census/zip_dl.py --state-file {db_path.stem} --use-db ...")
-        print(f"\nOr it will be auto-detected if you use the same base name.")
+        print(f"  python census/zip_dl.py --output {db_path.parent} --use-db ...")
+        print(f"\nOr it will be auto-detected based on file extension.")
+        print(f"The system looks for .duckdb files first, then .json files.")
         return 0
     
     except Exception as e:

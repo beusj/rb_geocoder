@@ -1007,7 +1007,7 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
     
     # Initialize state tracking - use appropriate backend
-    use_db = args.use_db if hasattr(args, 'use_db') else None
+    use_db = args.use_db
     download_state = create_state_tracker(state_file_base, use_db=use_db)
     
     if args.resume:
