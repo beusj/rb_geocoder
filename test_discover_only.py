@@ -292,9 +292,11 @@ class TestDiscoverOnlyDefaults:
                     # Verify discover_and_populate_state was called
                     assert mock_discover.called
                     
-                    # Get the call arguments
+                    # Get the call arguments (positional)
                     call_args = mock_discover.call_args
-                    dataset_types = call_args[1]['dataset_types']  # keyword argument
+                    # call_args[0] contains positional arguments
+                    # Third positional argument (index 2) is dataset_types
+                    dataset_types = call_args[0][2]
                     
                     # Verify default types
                     assert dataset_types == ['EDGES', 'ADDR', 'FEATNAMES']
@@ -326,9 +328,11 @@ class TestDiscoverOnlyDefaults:
                     except SystemExit as e:
                         assert e.code == 0
                     
-                    # Get the call arguments
+                    # Get the call arguments (positional)
                     call_args = mock_discover.call_args
-                    dataset_types = call_args[1]['dataset_types']
+                    # call_args[0] contains positional arguments
+                    # Third positional argument (index 2) is dataset_types
+                    dataset_types = call_args[0][2]
                     
                     # Verify explicit types are used
                     assert dataset_types == ['EDGES', 'ADDR']
