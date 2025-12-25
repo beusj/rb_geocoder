@@ -24,18 +24,28 @@ That's it! No compiling C extensions or patching gems.
 
 ### Step 2: Download TIGER/Line Data
 
-Use the included download script:
+Use the included download script with enhanced retry logic for 520/523 errors:
 
 ```bash
 # Download for a specific state (e.g., California = 06)
-python census/zip_dl.py --states 06 --output /data/tiger2024/ --parallel 8
+python census/zip_dl.py --states 06 --output /data/tiger2024/ --parallel 4
 
-# Download for multiple states
-python census/zip_dl.py --states 06,36,48 --output /data/tiger2024/
+# Download for multiple states with resume capability
+python census/zip_dl.py --states 06,36,48 --output /data/tiger2024/ --resume
 
 # Download all US states (warning: ~30GB!)
-python census/zip_dl.py --output /data/tiger2024/
+python census/zip_dl.py --output /data/tiger2024/ --timeout 60
+
+# Resume interrupted downloads
+python census/zip_dl.py --states 06 --output /data/tiger2024/ --resume --verbose
 ```
+
+**New Features:**
+- **Automatic Retry**: 8 retry attempts with exponential backoff for 520/523/524 errors
+- **Resume Support**: Use `--resume` to skip already downloaded files
+- **State Tracking**: Download progress saved to `.tiger_download_state.json`
+- **Timeout Control**: Configure download timeout with `--timeout` (default: 60s)
+- **Reliability**: Reduced default parallel downloads to 4 for better stability
 
 ### Step 3: Import TIGER/Line Data
 
@@ -43,10 +53,24 @@ python census/zip_dl.py --output /data/tiger2024/
 # Import all counties in the directory
 python tools/tiger_import_duckdb.py geocoder.db /data/tiger2024/ --verbose
 
+# Progressive loading: import files as they're downloaded
+python tools/tiger_import_duckdb.py geocoder.db /data/tiger2024/ \
+    --progressive --state-file .tiger_import_state.json --verbose
+
+# Import with automatic cleanup of ZIP files
+python tools/tiger_import_duckdb.py geocoder.db /data/tiger2024/ \
+    --progressive --cleanup --verbose
+
 # Or import specific counties
 python tools/tiger_import_duckdb.py geocoder.db /data/tiger2024/ \
     --counties 06075 06085 --verbose
 ```
+
+**New Features:**
+- **Progressive Loading**: Import files as they are downloaded with `--progressive`
+- **State Tracking**: Track imported files to resume interrupted imports with `--state-file`
+- **Automatic Cleanup**: Remove ZIP files after successful import with `--cleanup`
+- **Skip Completed**: Automatically skip already imported files
 
 This will:
 1. Create database schema
@@ -55,6 +79,31 @@ This will:
 4. Import feature names (street names)
 5. Generate metaphones automatically
 6. Build indexes
+
+### Step 3 (Alternative): Unified Download and Import
+
+For a streamlined workflow, use the unified script that downloads and imports progressively:
+
+```bash
+# Download and import California in one command
+python tools/tiger_download_and_import.py geocoder.db /data/tiger2024/ \
+    --states 06 --verbose
+
+# Download and import multiple states with cleanup
+python tools/tiger_download_and_import.py geocoder.db /data/tiger2024/ \
+    --states 06,36,48 --cleanup --verbose
+
+# Resume interrupted workflow
+python tools/tiger_download_and_import.py geocoder.db /data/tiger2024/ \
+    --states 06 --resume --verbose
+```
+
+**Benefits:**
+- Downloads and imports progressively - no need to wait for all downloads
+- Single command for the entire workflow
+- Tracks complete state: download → extract → load
+- Resumes from interruption at any stage
+- Optional cleanup of ZIP files after import
 
 ### Step 4: (Optional) Rebuild Metaphones
 
@@ -271,6 +320,75 @@ Indexes for fast lookup:
 - Geocoding: 100-200MB RAM
 
 ## Troubleshooting
+
+### Download Issues: 520/523/524 Errors
+
+If you encounter frequent 520, 523, or 524 errors from the Census Bureau server:
+
+```bash
+# Increase timeout and reduce parallelism
+python census/zip_dl.py --states 06 --output /data/tiger2024/ \
+    --timeout 90 --parallel 2 --resume --verbose
+
+# The script automatically retries with exponential backoff
+# 520/523/524 errors get 8 retry attempts with increasing delays
+```
+
+**Tips:**
+- Use `--resume` to skip already downloaded files and retry only failed ones
+- Reduce `--parallel` from 4 to 2 or 3 if server is overloaded
+- Increase `--timeout` from 60 to 90 or 120 seconds
+- Check `.tiger_download_state.json` to see which files failed
+- Downloads are validated - zero-byte files are automatically retried
+
+### Download Issues: Connection Timeouts
+
+If downloads timeout frequently:
+
+```bash
+# Increase timeout and add delays between requests
+python census/zip_dl.py --states 06 --output /data/tiger2024/ \
+    --timeout 120 --parallel 2 --verbose
+```
+
+The script will automatically:
+- Retry with exponential backoff (2s, 4s, 8s, 16s, 32s, 60s max)
+- Add random jitter to avoid thundering herd
+- Show retry progress: "HTTP 523 error, retrying in 8.3s (attempt 3/8)"
+
+### Resume Interrupted Downloads
+
+If downloads are interrupted (network issues, Ctrl+C, system reboot):
+
+```bash
+# Just add --resume to skip already downloaded files
+python census/zip_dl.py --states 06 --output /data/tiger2024/ --resume --verbose
+
+# Check download status
+cat /data/tiger2024/.tiger_download_state.json | jq '.completed | length'
+```
+
+The state file tracks:
+- Completed downloads with timestamps
+- Failed downloads with error messages
+- File paths and sizes
+
+### Progressive Loading: Start Using Data Immediately
+
+Instead of waiting for all downloads to complete:
+
+```bash
+# Terminal 1: Start downloading
+python census/zip_dl.py --states 06,36,48 --output /data/tiger2024/ --verbose
+
+# Terminal 2: Start importing as files arrive
+python tools/tiger_import_duckdb.py geocoder.db /data/tiger2024/ \
+    --progressive --state-file .import_state.json --verbose
+
+# Or use unified workflow (recommended)
+python tools/tiger_download_and_import.py geocoder.db /data/tiger2024/ \
+    --states 06,36,48 --cleanup --verbose
+```
 
 ### Import Fails: "Spatial extension not found"
 

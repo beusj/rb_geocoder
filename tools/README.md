@@ -4,13 +4,52 @@ This directory contains Python tools for building geocoding databases from TIGER
 
 ## Tools Overview
 
-### 1. `tiger_import_duckdb.py`
-Imports TIGER/Line shapefiles into DuckDB database for geocoding.
+### 1. `tiger_download_and_import.py` ⭐ NEW
+**Unified workflow for downloading and importing TIGER/Line data.**
 
 **Features:**
+- Downloads TIGER/Line files with robust retry logic for 520/523 errors
+- Progressively imports files into database as they are downloaded
+- Tracks complete workflow state (download → extract → load)
+- Resume capability for interrupted workflows
+- Optional cleanup of ZIP files after import
+- Single command for entire workflow
+
+**Usage:**
+```bash
+# Download and import California
+python tiger_download_and_import.py geocoder.db /data/tiger2024/ \
+    --states 06 --verbose
+
+# Download and import multiple states with cleanup
+python tiger_download_and_import.py geocoder.db /data/tiger2024/ \
+    --states 06,36,48 --cleanup --verbose
+
+# Resume interrupted workflow
+python tiger_download_and_import.py geocoder.db /data/tiger2024/ \
+    --states 06 --resume --verbose
+
+# Custom parallelism and timeout
+python tiger_download_and_import.py geocoder.db /data/tiger2024/ \
+    --states 06 --parallel 2 --timeout 90 --verbose
+```
+
+**Benefits:**
+- No need to wait for all downloads before importing
+- Saves time by processing files as they arrive
+- Automatic retry and resume for reliability
+- Tracks progress with JSON state files
+
+### 2. `tiger_import_duckdb.py`
+Imports TIGER/Line shapefiles into DuckDB database for geocoding.
+
+**Enhanced Features:**
 - Pure Python implementation (no bash/C dependencies)
 - Uses DuckDB spatial extension to read shapefiles directly
 - Automatic metaphone generation
+- **Progressive loading**: Import files as they are downloaded
+- **State tracking**: Resume interrupted imports
+- **Cleanup option**: Remove ZIP files after successful import
 - Parallel processing support
 - Progress tracking
 
@@ -19,19 +58,33 @@ Imports TIGER/Line shapefiles into DuckDB database for geocoding.
 # Import all counties from TIGER directory
 python tiger_import_duckdb.py geocoder.db /data/tiger2024/ --verbose
 
+# Progressive loading with state tracking
+python tiger_import_duckdb.py geocoder.db /data/tiger2024/ \
+    --progressive --state-file .import_state.json --verbose
+
+# Import with automatic cleanup
+python tiger_import_duckdb.py geocoder.db /data/tiger2024/ \
+    --progressive --cleanup --verbose
+
 # Import specific counties (e.g., San Francisco, Santa Clara)
 python tiger_import_duckdb.py geocoder.db /data/tiger2024/ --counties 06075 06085 --verbose
 
-# Quiet mode
-python tiger_import_duckdb.py geocoder.db /data/tiger2024/
+# Resume interrupted import
+python tiger_import_duckdb.py geocoder.db /data/tiger2024/ \
+    --state-file .import_state.json --verbose
 ```
+
+**New Features:**
+- `--progressive`: Enable progressive loading mode
+- `--cleanup`: Remove ZIP files after successful import
+- `--state-file`: Track import progress for resume capability
 
 **Replaces:**
 - `build/tiger_import` (bash script)
 - `build/shp2sqlite` (C binary)
 - `build/sql/create.sql`, `setup.sql`, `convert.sql`
 
-### 2. `rebuild_metaphones.py`
+### 3. `rebuild_metaphones.py`
 Regenerates metaphone phonetic codes for all street and city names.
 
 **Features:**
@@ -96,16 +149,27 @@ pip install duckdb jellyfish
 | Progress reporting | ⚠️ | ✅ | Improved |
 | Parallel processing | ❌ | ✅ | New |
 | Dry-run mode | ❌ | ✅ | New |
+| Progressive loading | ❌ | ✅ | New |
+| Resume capability | ❌ | ✅ | New |
+| State tracking | ❌ | ✅ | New |
+| Auto cleanup | ❌ | ✅ | New |
 
 ## Detailed Usage
 
 ### Downloading TIGER/Line Data
 
-First, download TIGER/Line data using the provided downloader:
+Download TIGER/Line data using the enhanced downloader with retry logic:
 
 ```bash
 # Download for specific state (e.g., California)
 python ../census/zip_dl.py --states 06 --output /data/tiger2024/
+
+# Download with resume capability (handles 520/523 errors)
+python ../census/zip_dl.py --states 06 --output /data/tiger2024/ --resume --verbose
+
+# Download with custom timeout and parallelism
+python ../census/zip_dl.py --states 06 --output /data/tiger2024/ \
+    --timeout 90 --parallel 2 --verbose
 
 # Download for multiple states
 python ../census/zip_dl.py --states 06,36,48 --output /data/tiger2024/
@@ -113,6 +177,13 @@ python ../census/zip_dl.py --states 06,36,48 --output /data/tiger2024/
 # Download all states (large!)
 python ../census/zip_dl.py --output /data/tiger2024/
 ```
+
+**Enhanced Download Features:**
+- **Automatic Retry**: 8 retry attempts with exponential backoff for 520/523/524 errors
+- **Resume Support**: Skip already downloaded files with `--resume`
+- **State Tracking**: Progress saved to `.tiger_download_state.json`
+- **Timeout Control**: Configure timeout with `--timeout` (default: 60s)
+- **Reliability**: Validates file sizes and retries corrupted downloads
 
 ### Building a Complete Database
 

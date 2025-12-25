@@ -19,6 +19,9 @@ Options:
     --list-types        List available dataset types
     --list-states       List all state FIPS codes
     --parallel N        Number of parallel downloads (default: 4)
+    --resume            Resume from previous download session
+    --state-file FILE   Path to state file (default: .tiger_download_state.json)
+    --timeout N         Download timeout in seconds (default: 60)
 """
 
 import os
@@ -31,6 +34,12 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Dict
 import time
 import random
+import json
+import hashlib
+
+# Constants
+USER_AGENT = 'TIGERLine-Downloader/1.0'
+COUNTY_LEVEL_TYPES = ['EDGES', 'ADDR', 'FACES', 'FEATNAMES']
 
 # State FIPS codes
 STATES = {
@@ -116,54 +125,204 @@ def construct_url(year: int, state_fips: str, county_fips: str, dataset_type: st
     
     return url
 
-def download_file(url: str, output_path: Path, retries: int = 5) -> tuple:
+class DownloadState:
+    """Track download state for resuming interrupted downloads."""
+    
+    def __init__(self, state_file: Path):
+        self.state_file = state_file
+        self.data = self._load()
+    
+    def _load(self) -> Dict:
+        """Load state from file."""
+        if self.state_file.exists():
+            try:
+                with open(self.state_file, 'r') as f:
+                    return json.load(f)
+            except Exception:
+                return {'files': {}, 'completed': [], 'failed': []}
+        return {'files': {}, 'completed': [], 'failed': []}
+    
+    def save(self):
+        """Save state to file."""
+        try:
+            with open(self.state_file, 'w') as f:
+                json.dump(self.data, f, indent=2)
+        except Exception as e:
+            print(f"Warning: Could not save state file: {e}")
+    
+    def mark_completed(self, url: str, output_path: str):
+        """Mark a file as successfully downloaded."""
+        file_key = str(output_path)
+        self.data['files'][file_key] = {
+            'url': url,
+            'status': 'completed',
+            'timestamp': time.time(),
+            'path': str(output_path)
+        }
+        if url not in self.data['completed']:
+            self.data['completed'].append(url)
+        if url in self.data['failed']:
+            self.data['failed'].remove(url)
+        self.save()
+    
+    def mark_failed(self, url: str, output_path: str, error: str):
+        """Mark a file as failed."""
+        file_key = str(output_path)
+        self.data['files'][file_key] = {
+            'url': url,
+            'status': 'failed',
+            'timestamp': time.time(),
+            'error': error,
+            'path': str(output_path)
+        }
+        if url not in self.data['failed']:
+            self.data['failed'].append(url)
+        self.save()
+    
+    def is_completed(self, output_path: str) -> bool:
+        """Check if a file is marked as completed."""
+        file_key = str(output_path)
+        return file_key in self.data['files'] and self.data['files'][file_key].get('status') == 'completed'
+    
+    def get_summary(self) -> Dict:
+        """Get download summary."""
+        return {
+            'completed': len(self.data['completed']),
+            'failed': len(self.data['failed']),
+            'total': len(self.data['files'])
+        }
+
+
+def download_file(url: str, output_path: Path, retries: int = 8, timeout: int = 60, 
+                 state: DownloadState = None) -> tuple:
     """
-    Download a file with retry logic (exponential backoff with jitter).
+    Download a file with enhanced retry logic for 520/523 errors.
     Returns (success: bool, url: str, message: str)
+    
+    Args:
+        url: URL to download
+        output_path: Path to save file
+        retries: Number of retry attempts (default: 8)
+        timeout: Request timeout in seconds (default: 60)
+        state: DownloadState object for tracking (optional)
     """
-    base_delay = 1  # seconds
-    max_delay = 30  # seconds
+    base_delay = 2  # seconds - increased from 1
+    max_delay = 60  # seconds - increased from 30
+    
+    # Check if already downloaded and valid
+    if output_path.exists():
+        file_size = output_path.stat().st_size
+        if file_size > 0:
+            if state:
+                state.mark_completed(url, str(output_path))
+            return (True, url, f"Already exists: {output_path.name} ({file_size:,} bytes)")
 
     for attempt in range(retries):
         try:
             output_path.parent.mkdir(parents=True, exist_ok=True)
-            if output_path.exists():
-                return (True, url, f"Already exists: {output_path.name}")
-            urllib.request.urlretrieve(url, output_path)
-            file_size = output_path.stat().st_size
+            
+            # Add timeout to urllib request
+            req = urllib.request.Request(url, headers={'User-Agent': USER_AGENT})
+            
+            with urllib.request.urlopen(req, timeout=timeout) as response:
+                # Download to temporary file first
+                temp_path = output_path.with_suffix('.tmp')
+                with open(temp_path, 'wb') as f:
+                    f.write(response.read())
+                
+                # Verify file size
+                file_size = temp_path.stat().st_size
+                if file_size == 0:
+                    temp_path.unlink()
+                    raise ValueError("Downloaded file is empty")
+                
+                # Move to final location
+                temp_path.rename(output_path)
+            
+            # Mark as completed in state
+            if state:
+                state.mark_completed(url, str(output_path))
+            
             return (True, url, f"Downloaded: {output_path.name} ({file_size:,} bytes)")
+            
         except urllib.error.HTTPError as e:
             if e.code == 404:
+                # Don't retry 404s - file doesn't exist
                 return (False, url, f"Not found (404): {url}")
-            elif e.code == 524:
-                # Retry 524 errors more times
-                extra_retries = 2
-                if attempt < retries + extra_retries - 1:
+            elif e.code in [520, 523, 524]:
+                # Server errors - retry with longer delays
+                if attempt < retries - 1:
+                    delay = min(base_delay * (2 ** attempt), max_delay)
+                    jitter = delay * 0.5 * random.random()
+                    wait_time = delay + jitter
+                    print(f"    HTTP {e.code} error, retrying in {wait_time:.1f}s (attempt {attempt + 1}/{retries})")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    error_msg = f"HTTP Error {e.code} (server error): {url}"
+                    if state:
+                        state.mark_failed(url, str(output_path), error_msg)
+                    return (False, url, error_msg)
+            elif e.code in [502, 503]:
+                # Server temporarily unavailable - retry
+                if attempt < retries - 1:
                     delay = min(base_delay * (2 ** attempt), max_delay)
                     jitter = delay * 0.5 * random.random()
                     time.sleep(delay + jitter)
                     continue
                 else:
-                    return (False, url, f"HTTP Error 524 (timeout): {url}")
-            elif attempt < retries - 1:
-                delay = min(base_delay * (2 ** attempt), max_delay)
-                jitter = delay * 0.5 * random.random()
-                time.sleep(delay + jitter)
+                    error_msg = f"HTTP Error {e.code}: {url}"
+                    if state:
+                        state.mark_failed(url, str(output_path), error_msg)
+                    return (False, url, error_msg)
             else:
-                return (False, url, f"HTTP Error {e.code}: {url}")
+                # Other HTTP errors
+                if attempt < retries - 1:
+                    delay = min(base_delay * (2 ** attempt), max_delay)
+                    jitter = delay * 0.5 * random.random()
+                    time.sleep(delay + jitter)
+                    continue
+                else:
+                    error_msg = f"HTTP Error {e.code}: {url}"
+                    if state:
+                        state.mark_failed(url, str(output_path), error_msg)
+                    return (False, url, error_msg)
         except Exception as e:
+            # Clean up temp file if it exists
+            temp_path = output_path.with_suffix('.tmp')
+            if temp_path.exists():
+                temp_path.unlink()
+            
             if attempt < retries - 1:
                 delay = min(base_delay * (2 ** attempt), max_delay)
                 jitter = delay * 0.5 * random.random()
+                print(f"    Error: {str(e)}, retrying in {delay + jitter:.1f}s (attempt {attempt + 1}/{retries})")
                 time.sleep(delay + jitter)
             else:
-                return (False, url, f"Error: {str(e)}")
-    return (False, url, "Failed after retries")
+                error_msg = f"Error: {str(e)}"
+                if state:
+                    state.mark_failed(url, str(output_path), error_msg)
+                return (False, url, error_msg)
+    
+    error_msg = "Failed after all retry attempts"
+    if state:
+        state.mark_failed(url, str(output_path), error_msg)
+    return (False, url, error_msg)
 
 def download_county_data(state_fips: str, year: int, output_dir: Path, 
-                         dataset_types: List[str], parallel: int = 4):
+                         dataset_types: List[str], parallel: int = 4, 
+                         timeout: int = 60, state: DownloadState = None):
     """
     Download county-level data for a state.
+    
+    Args:
+        state_fips: State FIPS code
+        year: Year to download
+        output_dir: Output directory
+        dataset_types: List of dataset types to download
+        parallel: Number of parallel downloads
+        timeout: Download timeout in seconds
+        state: DownloadState object for tracking
     """
     counties = get_county_list(state_fips, year)
     state_name = STATES.get(state_fips, f"State {state_fips}")
@@ -174,26 +333,50 @@ def download_county_data(state_fips: str, year: int, output_dir: Path,
     
     download_tasks = []
     for dataset_type in dataset_types:
-        if dataset_type in ['EDGES', 'ADDR', 'FACES', 'FEATNAMES']:
+        if dataset_type in COUNTY_LEVEL_TYPES:
             # County-level datasets
             for county_fips in counties:
                 url = construct_url(year, state_fips, county_fips, dataset_type)
                 output_path = output_dir / state_fips / f"tl_{year}_{state_fips}{county_fips}_{dataset_type.lower()}.zip"
+                
+                # Skip if already completed
+                if state and state.is_completed(str(output_path)):
+                    continue
+                    
                 download_tasks.append((url, output_path))
         else:
             # State-level or national datasets
             url = construct_url(year, state_fips, None, dataset_type)
             filename = url.split('/')[-1]
             output_path = output_dir / state_fips / filename
+            
+            # Skip if already completed
+            if state and state.is_completed(str(output_path)):
+                continue
+                
             download_tasks.append((url, output_path))
     
     # Download in parallel
     successful = 0
     failed = 0
     not_found = 0
+    skipped = 0
+    
+    # Calculate skipped count
+    if state:
+        total_possible = len(counties) * len([t for t in dataset_types if t in COUNTY_LEVEL_TYPES])
+        total_possible += len([t for t in dataset_types if t not in ['EDGES', 'ADDR', 'FACES', 'FEATNAMES']])
+        skipped = total_possible - len(download_tasks)
+    
+    if skipped > 0:
+        print(f"Skipping {skipped} already downloaded files")
+    
+    if not download_tasks:
+        print("All files already downloaded")
+        return successful, failed, not_found
     
     with ThreadPoolExecutor(max_workers=parallel) as executor:
-        futures = {executor.submit(download_file, url, path): (url, path) 
+        futures = {executor.submit(download_file, url, path, 8, timeout, state): (url, path) 
                    for url, path in download_tasks}
         
         for future in as_completed(futures):
@@ -210,8 +393,10 @@ def download_county_data(state_fips: str, year: int, output_dir: Path,
     
     print(f"\n{state_name} Summary:")
     print(f"  Successful: {successful}")
-    print(f"  Not Found: {not_found}")
-    print(f"  Failed: {failed}")
+    if skipped > 0:
+        print(f"  Skipped:    {skipped}")
+    print(f"  Not Found:  {not_found}")
+    print(f"  Failed:     {failed}")
     
     return successful, failed, not_found
 
@@ -235,6 +420,12 @@ def main():
                         help='List all state FIPS codes and exit')
     parser.add_argument('--parallel', type=int, default=4,
                         help='Number of parallel downloads (default: 4)')
+    parser.add_argument('--resume', action='store_true',
+                        help='Resume from previous download session')
+    parser.add_argument('--state-file', type=str, default='.tiger_download_state.json',
+                        help='Path to state file (default: .tiger_download_state.json)')
+    parser.add_argument('--timeout', type=int, default=60,
+                        help='Download timeout in seconds (default: 60)')
     
     args = parser.parse_args()
     
@@ -276,10 +467,23 @@ def main():
             return 1
     else:
         # Default to the most commonly used types for geocoding
-        type_list = ['EDGES', 'ADDR', 'FACES', 'FEATNAMES']
+        type_list = COUNTY_LEVEL_TYPES
     
     output_dir = Path(args.output)
     output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Initialize state tracking
+    state_file = output_dir / args.state_file
+    download_state = DownloadState(state_file)
+    
+    if args.resume:
+        summary = download_state.get_summary()
+        print(f"\n{'='*70}")
+        print(f"Resuming previous download session")
+        print(f"{'='*70}")
+        print(f"Previously completed: {summary['completed']}")
+        print(f"Previously failed:    {summary['failed']}")
+        print(f"{'='*70}\n")
     
     print(f"\n{'='*70}")
     print(f"TIGER/Line Download Configuration")
@@ -289,6 +493,8 @@ def main():
     print(f"States:        {len(state_list)} state(s)")
     print(f"Dataset Types: {', '.join(type_list)}")
     print(f"Parallel DLs:  {args.parallel}")
+    print(f"Timeout:       {args.timeout}s")
+    print(f"State File:    {state_file}")
     print(f"{'='*70}\n")
     
     # Download data for each state
@@ -300,13 +506,17 @@ def main():
     
     for state_fips in state_list:
         successful, failed, not_found = download_county_data(
-            state_fips, args.year, output_dir, type_list, args.parallel
+            state_fips, args.year, output_dir, type_list, args.parallel, 
+            args.timeout, download_state
         )
         total_successful += successful
         total_failed += failed
         total_not_found += not_found
     
     elapsed = time.time() - start_time
+    
+    # Get final state summary
+    state_summary = download_state.get_summary()
     
     # Final summary
     print(f"\n{'='*70}")
@@ -315,9 +525,14 @@ def main():
     print(f"Total Successful: {total_successful}")
     print(f"Total Not Found:  {total_not_found}")
     print(f"Total Failed:     {total_failed}")
+    print(f"Total Tracked:    {state_summary['total']}")
     print(f"Elapsed Time:     {elapsed:.1f} seconds")
     print(f"Output Directory: {output_dir.absolute()}")
+    print(f"State File:       {state_file}")
     print(f"{'='*70}\n")
+    
+    if total_failed > 0:
+        print(f"Note: Use --resume to retry failed downloads")
     
     return 0 if total_failed == 0 else 1
 
