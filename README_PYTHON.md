@@ -162,11 +162,12 @@ python tools/tiger_import_duckdb.py geocoder.duckdb ./data/tiger/ --verbose
 python tools/rebuild_metaphones.py geocoder.duckdb --verbose
 ```
 
-See `tools/README.md` for detailed instructions on:
-- Importing TIGER/Line shapefiles
+See `DATABASE_BUILD_GUIDE.md` for detailed instructions on:
+- Downloading and importing TIGER/Line shapefiles
 - Generating metaphone codes
 - Building indexes
 - Performance tuning
+- Troubleshooting
 
 **Advantages over Ruby version:**
 - ✅ No C compilation required (no shp2sqlite binary)
@@ -221,6 +222,31 @@ The geometry conversion process:
 - **DuckDB format**: WKB (Well-Known Binary) standard format
 - **SQLite/Ruby format**: Compressed format with coordinates as 4-byte signed integers (multiplied by 1,000,000)
 - The export tool automatically handles this conversion for the `edge` table
+
+## Batch Geocoding
+
+For geocoding many addresses, you can use simple iteration:
+
+```python
+addresses = ["123 Main St, City ST", "456 Oak Ave, Town ST", ...]
+
+with Database("geocoder.duckdb") as db:
+    results = [db.geocode(addr) for addr in addresses]
+```
+
+For parallel processing with multiple threads:
+
+```python
+from concurrent.futures import ThreadPoolExecutor
+
+def geocode_one(addr):
+    # Each thread needs its own connection
+    with Database("geocoder.duckdb") as db:
+        return db.geocode(addr)
+
+with ThreadPoolExecutor(max_workers=4) as executor:
+    results = list(executor.map(geocode_one, addresses))
+```
 
 ## Testing
 
@@ -301,6 +327,12 @@ Based on the original Geocoder::US by Schuyler Erle.
 - DuckDB: https://duckdb.org/
 - DuckDB Spatial: https://duckdb.org/docs/extensions/spatial.html
 - TIGER/Line: https://www.census.gov/geographies/mapping-files/time-series/geo/tiger-line-file.html
+
+## Additional Documentation
+
+- [Database Build Guide](DATABASE_BUILD_GUIDE.md) - Complete guide to building databases from TIGER/Line data
+- [Changes Summary](CHANGES_SUMMARY.md) - Implementation changes and improvements
+- [Refactoring Summary](REFACTORING_SUMMARY.md) - Ruby to Python migration rationale
 
 ## Support
 
