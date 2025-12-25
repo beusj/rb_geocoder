@@ -1171,7 +1171,7 @@ def main():
     print(f"Total Tracked:    {state_summary['total']}")
     print(f"Elapsed Time:     {elapsed:.1f} seconds")
     print(f"Output Directory: {output_dir.absolute()}")
-    print(f"State File:       {state_file}")
+    print(f"State File:       {state_file_actual}")
     print(f"{'='*70}\n")
     
     if total_failed > 0:
