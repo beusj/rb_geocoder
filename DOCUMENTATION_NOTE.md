@@ -13,17 +13,17 @@ python tools/tiger_download_and_import.py --help
 ### Usage Examples
 
 ```bash
-# Download and import California data
-python tools/tiger_download_and_import.py geocoder.duckdb --states 06 --verbose
+# Download and import Georgia data
+python tools/tiger_download_and_import.py geocoder.duckdb --states 13 --verbose
 
 # Download and import multiple states
 python tools/tiger_download_and_import.py geocoder.duckdb --states 06,36,48 --verbose
 
 # With cleanup of ZIP files
-python tools/tiger_download_and_import.py geocoder.duckdb --states 06 --cleanup --verbose
+python tools/tiger_download_and_import.py geocoder.duckdb --states 13 --cleanup --verbose
 ```
 
-The `--states` argument accepts comma-separated state FIPS codes (e.g., "06" for California, "36" for New York, "48" for Texas).
+The `--states` argument accepts comma-separated state FIPS codes (e.g., "13" for Georgia, "36" for New York, "48" for Texas).
 
 ## Documentation Cleanup
 

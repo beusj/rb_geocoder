@@ -16,8 +16,8 @@ The `--discover-only` flag allows you to populate the tracking/state database wi
 Discover files for one or more states:
 
 ```bash
-# Single state (California)
-python census/zip_dl.py --discover-only --states 06 --types EDGES,ADDR
+# Single state (Georgia)
+python census/zip_dl.py --discover-only --states 13 --types EDGES,ADDR
 
 # Multiple states (California, Texas, New York)
 python census/zip_dl.py --discover-only --states 06,48,36 --types EDGES,ADDR,FEATNAMES
@@ -43,10 +43,10 @@ Download the files that were discovered:
 
 ```bash
 # Download with discovery (uses already discovered URLs)
-python census/zip_dl.py --states 06 --discover --resume
+python census/zip_dl.py --states 13 --discover --resume
 
 # Or just download without re-discovering (if URLs already in database)
-python census/zip_dl.py --states 06 --resume
+python census/zip_dl.py --states 13 --resume
 ```
 
 ## Command Reference
@@ -116,13 +116,13 @@ python census/zip_dl.py --discover-only \
 
 ```bash
 # Step 1: Discover files
-python census/zip_dl.py --discover-only --states 06 --types EDGES,ADDR
+python census/zip_dl.py --discover-only --states 13 --types EDGES,ADDR
 
 # Step 2: Check what was discovered
 python census/zip_dl.py --show-status
 
 # Step 3: Download discovered files
-python census/zip_dl.py --states 06 --discover --resume
+python census/zip_dl.py --states 13 --discover --resume
 
 # Step 4: Check progress during download
 python census/zip_dl.py --show-status
