@@ -108,8 +108,6 @@ python tools/tiger_download_and_import.py geocoder.duckdb --resume --verbose
 # Use JSON state tracking instead of DuckDB
 python tools/tiger_download_and_import.py geocoder.duckdb --states 06 --no-use-db --verbose
 ```
-    --states 06 --resume --verbose
-```
 
 **Benefits:**
 - Downloads and imports progressively - no need to wait for all downloads
@@ -381,7 +379,6 @@ python census/zip_dl.py --show-status
 
 # Or for JSON state tracking (with --no-use-db):
 cat census/tiger/.tiger_download_state.json | jq '.completed | length'
-```
 ```
 
 The state file tracks:
