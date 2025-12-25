@@ -13,11 +13,11 @@ Usage:
     python tiger_download_and_import.py <database> [output_dir] [options]
 
 Example:
-    # Download and import California data (output defaults to census/tiger)
-    python tiger_download_and_import.py geocoder.duckdb --states 06 --verbose
+    # Download and import Georgia data (output defaults to census/tiger)
+    python tiger_download_and_import.py geocoder.duckdb --states 13 --verbose
     
     # Specify custom output directory
-    python tiger_download_and_import.py geocoder.duckdb ./tiger --states 06 --verbose
+    python tiger_download_and_import.py geocoder.duckdb ./tiger --states 13 --verbose
     
     # Resume interrupted workflow
     python tiger_download_and_import.py geocoder.duckdb --resume --verbose

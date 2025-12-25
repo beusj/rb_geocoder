@@ -27,24 +27,24 @@ That's it! No compiling C extensions or patching gems.
 Use the included download script with enhanced retry logic for 520/523 errors:
 
 ```bash
-# Download for a specific state (e.g., California = 06)
+# Download for a specific state (e.g., Georgia = 13)
 # Defaults to census/tiger output and DuckDB state tracking
-python census/zip_dl.py --states 06 --parallel 4
+python census/zip_dl.py --states 13 --parallel 4
 
 # Download with custom output directory
-python census/zip_dl.py --states 06 --output /data/tiger2024/ --parallel 4
+python census/zip_dl.py --states 13 --output /data/tiger2024/ --parallel 4
 
 # Download for multiple states with resume capability
 python census/zip_dl.py --states 06,36,48 --resume
 
 # Use JSON state tracking instead of DuckDB
-python census/zip_dl.py --states 06 --no-use-db
+python census/zip_dl.py --states 13 --no-use-db
 
 # Download all US states (warning: ~30GB!)
 python census/zip_dl.py --timeout 60
 
 # Resume interrupted downloads
-python census/zip_dl.py --states 06 --resume --verbose
+python census/zip_dl.py --states 13 --resume --verbose
 ```
 
 **New Features:**
@@ -93,11 +93,11 @@ This will:
 For a streamlined workflow, use the unified script that downloads and imports progressively:
 
 ```bash
-# Download and import California in one command (defaults to census/tiger)
-python tools/tiger_download_and_import.py geocoder.duckdb --states 06 --verbose
+# Download and import Georgia in one command (defaults to census/tiger)
+python tools/tiger_download_and_import.py geocoder.duckdb --states 13 --verbose
 
 # Specify custom output directory
-python tools/tiger_download_and_import.py geocoder.duckdb /data/tiger --states 06 --verbose
+python tools/tiger_download_and_import.py geocoder.duckdb /data/tiger --states 13 --verbose
 
 # Download and import multiple states with cleanup
 python tools/tiger_download_and_import.py geocoder.duckdb --states 06,36,48 --cleanup --verbose
@@ -106,7 +106,7 @@ python tools/tiger_download_and_import.py geocoder.duckdb --states 06,36,48 --cl
 python tools/tiger_download_and_import.py geocoder.duckdb --resume --verbose
 
 # Use JSON state tracking instead of DuckDB
-python tools/tiger_download_and_import.py geocoder.duckdb --states 06 --no-use-db --verbose
+python tools/tiger_download_and_import.py geocoder.duckdb --states 13 --no-use-db --verbose
 ```
 
 **Benefits:**
@@ -359,7 +359,7 @@ If you encounter frequent 520, 523, or 524 errors from the Census Bureau server:
 
 ```bash
 # Increase timeout and reduce parallelism
-python census/zip_dl.py --states 06 --output /data/tiger2024/ \
+python census/zip_dl.py --states 13 --output /data/tiger2024/ \
     --timeout 90 --parallel 2 --resume --verbose
 
 # The script automatically retries with exponential backoff
@@ -379,7 +379,7 @@ If downloads timeout frequently:
 
 ```bash
 # Increase timeout and add delays between requests
-python census/zip_dl.py --states 06 --timeout 120 --parallel 2 --verbose
+python census/zip_dl.py --states 13 --timeout 120 --parallel 2 --verbose
 ```
 
 The script will automatically:
@@ -393,7 +393,7 @@ If downloads are interrupted (network issues, Ctrl+C, system reboot):
 
 ```bash
 # Just add --resume to skip already downloaded files
-python census/zip_dl.py --states 06 --resume --verbose
+python census/zip_dl.py --states 13 --resume --verbose
 
 # Check download status
 python census/zip_dl.py --show-status

@@ -43,10 +43,10 @@ The Python/DuckDB version includes several enhancements over the original Ruby/S
 **Usage:**
 ```bash
 # Uses DuckDB by default
-python census/zip_dl.py --states 06
+python census/zip_dl.py --states 13
 
 # Use JSON if needed
-python census/zip_dl.py --states 06 --no-use-db
+python census/zip_dl.py --states 13 --no-use-db
 ```
 
 ### 3. Default Output Directory: `census/tiger`
@@ -61,10 +61,10 @@ python census/zip_dl.py --states 06 --no-use-db
 **Usage:**
 ```bash
 # Downloads to census/tiger by default
-python census/zip_dl.py --states 06
+python census/zip_dl.py --states 13
 
 # Can still specify custom location
-python census/zip_dl.py --states 06 --output /data/tiger
+python census/zip_dl.py --states 13 --output /data/tiger
 ```
 
 ### 4. Unified Workflow: `tiger_download_and_import.py`
@@ -80,13 +80,13 @@ python census/zip_dl.py --states 06 --output /data/tiger
 **Usage:**
 ```bash
 # Complete workflow in one command (defaults to census/tiger)
-python tools/tiger_download_and_import.py geocoder.duckdb --states 06 --verbose
+python tools/tiger_download_and_import.py geocoder.duckdb --states 13 --verbose
 
 # Specify custom output directory
-python tools/tiger_download_and_import.py geocoder.duckdb /data/tiger --states 06
+python tools/tiger_download_and_import.py geocoder.duckdb /data/tiger --states 13
 
 # Progressive import with cleanup
-python tools/tiger_download_and_import.py geocoder.duckdb --states 06 --cleanup
+python tools/tiger_download_and_import.py geocoder.duckdb --states 13 --cleanup
 ```
 
 **Note:** The `--states` argument is fully supported and working correctly.
@@ -153,7 +153,7 @@ Download TIGER/Line files with retry logic.
 **Examples:**
 ```bash
 # Basic usage (defaults: census/tiger, DuckDB)
-python census/zip_dl.py --states 06
+python census/zip_dl.py --states 13
 
 # Multiple states with resume
 python census/zip_dl.py --states 06,36,48 --resume
@@ -162,7 +162,7 @@ python census/zip_dl.py --states 06,36,48 --resume
 python census/zip_dl.py --show-status
 
 # Use JSON state tracking
-python census/zip_dl.py --states 06 --no-use-db
+python census/zip_dl.py --states 13 --no-use-db
 ```
 
 ### Unified Workflow: `tools/tiger_download_and_import.py`
@@ -181,13 +181,13 @@ Combined download and import workflow.
 **Examples:**
 ```bash
 # Basic usage (defaults: census/tiger, DuckDB)
-python tools/tiger_download_and_import.py geocoder.duckdb --states 06
+python tools/tiger_download_and_import.py geocoder.duckdb --states 13
 
 # With custom output
-python tools/tiger_download_and_import.py geocoder.duckdb /data/tiger --states 06
+python tools/tiger_download_and_import.py geocoder.duckdb /data/tiger --states 13
 
 # Progressive with cleanup
-python tools/tiger_download_and_import.py geocoder.duckdb --states 06 --cleanup
+python tools/tiger_download_and_import.py geocoder.duckdb --states 13 --cleanup
 
 # Resume interrupted workflow
 python tools/tiger_download_and_import.py geocoder.duckdb --resume
@@ -254,7 +254,7 @@ If you have existing code using `geocoder.db`:
 **Old way:**
 ```bash
 # Download
-python census/zip_dl.py --states 06 --output /data/tiger
+python census/zip_dl.py --states 13 --output /data/tiger
 
 # Import
 python tools/tiger_import_duckdb.py geocoder.duckdb /data/tiger --verbose
@@ -263,10 +263,10 @@ python tools/tiger_import_duckdb.py geocoder.duckdb /data/tiger --verbose
 **New way (recommended):**
 ```bash
 # Combined workflow (defaults to census/tiger)
-python tools/tiger_download_and_import.py geocoder.duckdb --states 06 --verbose
+python tools/tiger_download_and_import.py geocoder.duckdb --states 13 --verbose
 
 # Or with custom output
-python tools/tiger_download_and_import.py geocoder.duckdb /data/tiger --states 06 --verbose
+python tools/tiger_download_and_import.py geocoder.duckdb /data/tiger --states 13 --verbose
 ```
 
 ## Backward Compatibility

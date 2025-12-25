@@ -153,7 +153,7 @@ The Python/DuckDB version includes tools to build databases from TIGER/Line shap
 
 ```bash
 # Step 1: Download TIGER/Line data
-python census/zip_dl.py --states 06 --output ./data/tiger/
+python census/zip_dl.py --states 13 --output ./data/tiger/
 
 # Step 2: Import into DuckDB
 python tools/tiger_import_duckdb.py geocoder.duckdb ./data/tiger/ --verbose
