@@ -8,7 +8,7 @@ efficient geographic queries.
 Usage:
     from geocoder_us import Database
     
-    db = Database("/path/to/geocoder.db")
+    db = Database("/path/to/geocoder.duckdb")
     results = db.geocode("1600 Pennsylvania Ave, Washington DC")
 """
 

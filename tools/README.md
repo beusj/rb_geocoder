@@ -2,6 +2,36 @@
 
 This directory contains Python tools for building geocoding databases from TIGER/Line data, equivalent to the Ruby/bash scripts in the original implementation.
 
+## Directory Structure
+
+The Python implementation is organized as follows:
+
+```
+rb_geocoder/
+├── geocoder_us/          # Core Python library (main geocoding package)
+│   ├── __init__.py
+│   ├── address.py        # Address parsing
+│   ├── database.py       # DuckDB database interface
+│   └── constants.py      # State codes, abbreviations
+├── tools/                # Build and maintenance scripts
+│   ├── tiger_import_duckdb.py
+│   ├── tiger_download_and_import.py
+│   └── rebuild_metaphones.py
+├── census/               # Census data download utilities
+│   └── zip_dl.py
+├── examples/             # Example usage scripts
+│   └── demo_python.py
+└── test_geocoder_us.py  # Unit tests
+```
+
+**Note:** This organization is intentional and mirrors best practices:
+- `geocoder_us/` - Installable Python package
+- `tools/` - Build/maintenance utilities (not part of runtime package)
+- `census/` - Data acquisition scripts
+- `examples/` - Usage demonstrations
+
+The scripts are already well-organized by purpose, so refactoring them into a single directory would reduce clarity.
+
 ## Tools Overview
 
 ### 1. `tiger_download_and_import.py` ⭐ NEW
@@ -18,19 +48,19 @@ This directory contains Python tools for building geocoding databases from TIGER
 **Usage:**
 ```bash
 # Download and import California
-python tiger_download_and_import.py geocoder.db /data/tiger2024/ \
+python tiger_download_and_import.py geocoder.duckdb /data/tiger2024/ \
     --states 06 --verbose
 
 # Download and import multiple states with cleanup
-python tiger_download_and_import.py geocoder.db /data/tiger2024/ \
+python tiger_download_and_import.py geocoder.duckdb /data/tiger2024/ \
     --states 06,36,48 --cleanup --verbose
 
 # Resume interrupted workflow
-python tiger_download_and_import.py geocoder.db /data/tiger2024/ \
+python tiger_download_and_import.py geocoder.duckdb /data/tiger2024/ \
     --states 06 --resume --verbose
 
 # Custom parallelism and timeout
-python tiger_download_and_import.py geocoder.db /data/tiger2024/ \
+python tiger_download_and_import.py geocoder.duckdb /data/tiger2024/ \
     --states 06 --parallel 2 --timeout 90 --verbose
 ```
 
@@ -56,21 +86,21 @@ Imports TIGER/Line shapefiles into DuckDB database for geocoding.
 **Usage:**
 ```bash
 # Import all counties from TIGER directory
-python tiger_import_duckdb.py geocoder.db /data/tiger2024/ --verbose
+python tiger_import_duckdb.py geocoder.duckdb /data/tiger2024/ --verbose
 
 # Progressive loading with state tracking
-python tiger_import_duckdb.py geocoder.db /data/tiger2024/ \
+python tiger_import_duckdb.py geocoder.duckdb /data/tiger2024/ \
     --progressive --state-file .import_state.json --verbose
 
 # Import with automatic cleanup
-python tiger_import_duckdb.py geocoder.db /data/tiger2024/ \
+python tiger_import_duckdb.py geocoder.duckdb /data/tiger2024/ \
     --progressive --cleanup --verbose
 
 # Import specific counties (e.g., San Francisco, Santa Clara)
-python tiger_import_duckdb.py geocoder.db /data/tiger2024/ --counties 06075 06085 --verbose
+python tiger_import_duckdb.py geocoder.duckdb /data/tiger2024/ --counties 06075 06085 --verbose
 
 # Resume interrupted import
-python tiger_import_duckdb.py geocoder.db /data/tiger2024/ \
+python tiger_import_duckdb.py geocoder.duckdb /data/tiger2024/ \
     --state-file .import_state.json --verbose
 ```
 
@@ -96,13 +126,13 @@ Regenerates metaphone phonetic codes for all street and city names.
 **Usage:**
 ```bash
 # Rebuild all metaphones with progress
-python rebuild_metaphones.py geocoder.db --verbose
+python rebuild_metaphones.py geocoder.duckdb --verbose
 
 # Preview without making changes
-python rebuild_metaphones.py geocoder.db --dry-run --verbose
+python rebuild_metaphones.py geocoder.duckdb --dry-run --verbose
 
 # Quiet mode
-python rebuild_metaphones.py geocoder.db
+python rebuild_metaphones.py geocoder.duckdb
 ```
 
 **Replaces:**
@@ -189,13 +219,13 @@ python ../census/zip_dl.py --output /data/tiger2024/
 
 ```bash
 # Step 1: Import TIGER/Line data
-python tiger_import_duckdb.py geocoder.db /data/tiger2024/ --verbose
+python tiger_import_duckdb.py geocoder.duckdb /data/tiger2024/ --verbose
 
 # Step 2: (Optional) Rebuild metaphones if data changes
-python rebuild_metaphones.py geocoder.db --verbose
+python rebuild_metaphones.py geocoder.duckdb --verbose
 
 # Step 3: Test the database
-python ../examples/demo_python.py geocoder.db
+python ../examples/demo_python.py geocoder.duckdb
 ```
 
 ### Incremental Updates
@@ -204,11 +234,11 @@ To add more counties to an existing database:
 
 ```bash
 # Import additional counties
-python tiger_import_duckdb.py geocoder.db /data/tiger2024/ \
+python tiger_import_duckdb.py geocoder.duckdb /data/tiger2024/ \
     --counties 12086 12095 --verbose
 
 # Rebuild metaphones for new data
-python rebuild_metaphones.py geocoder.db --verbose
+python rebuild_metaphones.py geocoder.duckdb --verbose
 ```
 
 ### Memory and Performance Tuning
@@ -303,8 +333,8 @@ If you get out of memory errors during import:
 
 2. **Import fewer counties at a time:**
    ```bash
-   python tiger_import_duckdb.py geocoder.db /data/tiger/ --counties 06001
-   python tiger_import_duckdb.py geocoder.db /data/tiger/ --counties 06075
+   python tiger_import_duckdb.py geocoder.duckdb /data/tiger/ --counties 06001
+   python tiger_import_duckdb.py geocoder.duckdb /data/tiger/ --counties 06075
    ```
 
 3. **Use swap space** on Linux

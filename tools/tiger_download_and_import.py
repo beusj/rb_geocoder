@@ -14,13 +14,13 @@ Usage:
 
 Example:
     # Download and import California data
-    python tiger_download_and_import.py geocoder.db ./tiger --states 06 --verbose
+    python tiger_download_and_import.py geocoder.duckdb ./tiger --states 06 --verbose
     
     # Resume interrupted workflow
-    python tiger_download_and_import.py geocoder.db ./tiger --resume --verbose
+    python tiger_download_and_import.py geocoder.duckdb ./tiger --resume --verbose
     
     # Progressive download and import with cleanup
-    python tiger_download_and_import.py geocoder.db ./tiger --states 06,36 --cleanup
+    python tiger_download_and_import.py geocoder.duckdb ./tiger --states 06,36 --cleanup
 """
 
 import sys
@@ -37,6 +37,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from census.zip_dl import download_county_data, DownloadState, STATES, DATASET_TYPES, COUNTY_LEVEL_TYPES
 from tools.tiger_import_duckdb import import_tiger_data
+from tools.utils import validate_database_extension
 
 
 class WorkflowState:
@@ -239,7 +240,7 @@ def main():
         epilog=__doc__
     )
     
-    parser.add_argument('database', help='Path to DuckDB database file')
+    parser.add_argument('database', help='Path to DuckDB database file (.duckdb or .db extension required)')
     parser.add_argument('output_dir', help='Output directory for TIGER/Line files')
     parser.add_argument('--states', type=str,
                        help='Comma-separated state FIPS codes (e.g., "06,36,48")')
@@ -257,6 +258,12 @@ def main():
                        help='Remove ZIP files after successful import')
     
     args = parser.parse_args()
+    
+    # Validate database extension
+    try:
+        validate_database_extension(args.database)
+    except ValueError as e:
+        parser.error(str(e))
     
     # Parse states
     state_list = None

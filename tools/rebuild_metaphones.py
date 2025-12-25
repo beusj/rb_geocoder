@@ -11,7 +11,7 @@ Usage:
     python rebuild_metaphones.py <database_file> [options]
 
 Example:
-    python rebuild_metaphones.py geocoder.db --verbose
+    python rebuild_metaphones.py geocoder.duckdb --verbose
 """
 
 import sys
@@ -19,6 +19,11 @@ import argparse
 import duckdb
 import jellyfish
 from pathlib import Path
+
+
+# Import database validation utility
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from tools.utils import validate_database_extension
 
 
 def metaphone_function(text: str, length: int = 5) -> str:
@@ -214,23 +219,29 @@ About Metaphones:
 
 Examples:
   # Rebuild metaphones with progress output
-  python rebuild_metaphones.py geocoder.db --verbose
+  python rebuild_metaphones.py geocoder.duckdb --verbose
 
   # Preview changes without applying them
-  python rebuild_metaphones.py geocoder.db --dry-run --verbose
+  python rebuild_metaphones.py geocoder.duckdb --dry-run --verbose
 
   # Quiet mode
-  python rebuild_metaphones.py geocoder.db
+  python rebuild_metaphones.py geocoder.duckdb
         """
     )
     
-    parser.add_argument('database', help='Path to DuckDB or SQLite database file')
+    parser.add_argument('database', help='Path to DuckDB database file (.duckdb or .db extension required)')
     parser.add_argument('-v', '--verbose', action='store_true', 
                        help='Print detailed progress information')
     parser.add_argument('--dry-run', action='store_true',
                        help='Preview changes without applying them')
     
     args = parser.parse_args()
+    
+    # Validate database extension
+    try:
+        validate_database_extension(args.database)
+    except ValueError as e:
+        parser.error(str(e))
     
     return rebuild_metaphones(args.database, args.verbose, args.dry_run)
 
