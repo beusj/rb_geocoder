@@ -44,31 +44,36 @@ The scripts are already well-organized by purpose, so refactoring them into a si
 - Resume capability for interrupted workflows
 - Optional cleanup of ZIP files after import
 - Single command for entire workflow
+- **Uses DuckDB for state tracking by default** (improved scalability)
+- **Defaults to `census/tiger` output directory**
 
 **Usage:**
 ```bash
-# Download and import California
-python tiger_download_and_import.py geocoder.duckdb /data/tiger2024/ \
-    --states 06 --verbose
+# Download and import California (defaults to census/tiger output, DuckDB state tracking)
+python tiger_download_and_import.py geocoder.duckdb --states 06 --verbose
+
+# Specify custom output directory
+python tiger_download_and_import.py geocoder.duckdb /data/tiger --states 06 --verbose
 
 # Download and import multiple states with cleanup
-python tiger_download_and_import.py geocoder.duckdb /data/tiger2024/ \
-    --states 06,36,48 --cleanup --verbose
+python tiger_download_and_import.py geocoder.duckdb --states 06,36,48 --cleanup --verbose
 
 # Resume interrupted workflow
-python tiger_download_and_import.py geocoder.duckdb /data/tiger2024/ \
-    --states 06 --resume --verbose
+python tiger_download_and_import.py geocoder.duckdb --resume --verbose
 
 # Custom parallelism and timeout
-python tiger_download_and_import.py geocoder.duckdb /data/tiger2024/ \
-    --states 06 --parallel 2 --timeout 90 --verbose
+python tiger_download_and_import.py geocoder.duckdb --states 06 --parallel 2 --timeout 90 --verbose
+
+# Use JSON state tracking instead of DuckDB
+python tiger_download_and_import.py geocoder.duckdb --states 06 --no-use-db --verbose
 ```
 
 **Benefits:**
 - No need to wait for all downloads before importing
 - Saves time by processing files as they arrive
 - Automatic retry and resume for reliability
-- Tracks progress with JSON state files
+- Tracks progress with DuckDB (or JSON with --no-use-db)
+- Single entry point for the complete workflow
 
 ### 2. `tiger_import_duckdb.py`
 Imports TIGER/Line shapefiles into DuckDB database for geocoding.
@@ -192,27 +197,34 @@ Download TIGER/Line data using the enhanced downloader with retry logic:
 
 ```bash
 # Download for specific state (e.g., California)
+# Defaults to census/tiger output directory and DuckDB state tracking
+python ../census/zip_dl.py --states 06
+
+# Download with custom output directory
 python ../census/zip_dl.py --states 06 --output /data/tiger2024/
 
 # Download with resume capability (handles 520/523 errors)
-python ../census/zip_dl.py --states 06 --output /data/tiger2024/ --resume --verbose
+python ../census/zip_dl.py --states 06 --resume --verbose
 
 # Download with custom timeout and parallelism
-python ../census/zip_dl.py --states 06 --output /data/tiger2024/ \
-    --timeout 90 --parallel 2 --verbose
+python ../census/zip_dl.py --states 06 --timeout 90 --parallel 2 --verbose
 
 # Download for multiple states
-python ../census/zip_dl.py --states 06,36,48 --output /data/tiger2024/
+python ../census/zip_dl.py --states 06,36,48
+
+# Use JSON state tracking instead of DuckDB
+python ../census/zip_dl.py --states 06 --no-use-db
 
 # Download all states (large!)
-python ../census/zip_dl.py --output /data/tiger2024/
+python ../census/zip_dl.py
 ```
 
 **Enhanced Download Features:**
 - **Automatic Retry**: 8 retry attempts with exponential backoff for 520/523/524 errors
 - **Resume Support**: Skip already downloaded files with `--resume`
-- **State Tracking**: Progress saved to `.tiger_download_state.json`
+- **State Tracking**: Progress saved to DuckDB by default (use `--no-use-db` for JSON)
 - **Timeout Control**: Configure timeout with `--timeout` (default: 60s)
+- **Default Output**: Downloads to `census/tiger` (configurable with `--output`)
 - **Reliability**: Validates file sizes and retries corrupted downloads
 
 ### Building a Complete Database
