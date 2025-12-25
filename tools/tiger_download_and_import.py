@@ -10,17 +10,20 @@ This script provides an integrated workflow that:
 5. Optionally cleans up ZIP files after successful import
 
 Usage:
-    python tiger_download_and_import.py <database> <output_dir> [options]
+    python tiger_download_and_import.py <database> [output_dir] [options]
 
 Example:
-    # Download and import California data
+    # Download and import California data (output defaults to census/tiger)
+    python tiger_download_and_import.py geocoder.duckdb --states 06 --verbose
+    
+    # Specify custom output directory
     python tiger_download_and_import.py geocoder.duckdb ./tiger --states 06 --verbose
     
     # Resume interrupted workflow
-    python tiger_download_and_import.py geocoder.duckdb ./tiger --resume --verbose
+    python tiger_download_and_import.py geocoder.duckdb --resume --verbose
     
     # Progressive download and import with cleanup
-    python tiger_download_and_import.py geocoder.duckdb ./tiger --states 06,36 --cleanup
+    python tiger_download_and_import.py geocoder.duckdb --states 06,36 --cleanup
 """
 
 import sys
@@ -35,7 +38,7 @@ from typing import Optional
 # Add parent directory to path to import from census and tools
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from census.zip_dl import download_county_data, DownloadState, STATES, DATASET_TYPES, COUNTY_LEVEL_TYPES
+from census.zip_dl import download_county_data, DownloadState, STATES, DATASET_TYPES, COUNTY_LEVEL_TYPES, create_state_tracker
 from tools.tiger_import_duckdb import import_tiger_data
 from tools.utils import validate_database_extension
 
@@ -111,7 +114,8 @@ class WorkflowState:
 
 def run_workflow(database: str, output_dir: str, states: Optional[list] = None,
                 types: Optional[list] = None, parallel: int = 3, timeout: int = 60,
-                verbose: bool = False, resume: bool = False, cleanup: bool = False):
+                verbose: bool = False, resume: bool = False, cleanup: bool = False,
+                use_db: bool = True):
     """
     Run the complete download and import workflow.
     
@@ -125,6 +129,7 @@ def run_workflow(database: str, output_dir: str, states: Optional[list] = None,
         verbose: Verbose output
         resume: Resume from previous workflow
         cleanup: Remove ZIP files after import
+        use_db: Use DuckDB for state tracking (default: True)
     """
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -133,9 +138,9 @@ def run_workflow(database: str, output_dir: str, states: Optional[list] = None,
     workflow_state_file = output_path / '.tiger_workflow_state.json'
     workflow_state = WorkflowState(workflow_state_file)
     
-    # Initialize download state
-    download_state_file = output_path / '.tiger_download_state.json'
-    download_state = DownloadState(download_state_file)
+    # Initialize download state with DuckDB or JSON backend
+    download_state_file = output_path / '.tiger_download_state'
+    download_state = create_state_tracker(download_state_file, use_db=use_db)
     
     # Initialize import state
     import_state_file = output_path / '.tiger_import_state.json'
@@ -241,7 +246,8 @@ def main():
     )
     
     parser.add_argument('database', help='Path to DuckDB database file (.duckdb or .db extension required)')
-    parser.add_argument('output_dir', help='Output directory for TIGER/Line files')
+    parser.add_argument('output_dir', nargs='?', default='census/tiger',
+                       help='Output directory for TIGER/Line files (default: census/tiger)')
     parser.add_argument('--states', type=str,
                        help='Comma-separated state FIPS codes (e.g., "06,36,48")')
     parser.add_argument('--types', type=str,
@@ -256,6 +262,10 @@ def main():
                        help='Resume from previous workflow')
     parser.add_argument('--cleanup', action='store_true',
                        help='Remove ZIP files after successful import')
+    parser.add_argument('--use-db', action='store_true', default=True,
+                       help='Use DuckDB for state tracking (default: enabled)')
+    parser.add_argument('--no-use-db', dest='use_db', action='store_false',
+                       help='Use JSON for state tracking instead of DuckDB')
     
     args = parser.parse_args()
     
@@ -285,7 +295,8 @@ def main():
     
     return run_workflow(
         args.database, args.output_dir, state_list, type_list,
-        args.parallel, args.timeout, args.verbose, args.resume, args.cleanup
+        args.parallel, args.timeout, args.verbose, args.resume, args.cleanup,
+        args.use_db
     )
 
 

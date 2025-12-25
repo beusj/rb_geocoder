@@ -28,22 +28,30 @@ Use the included download script with enhanced retry logic for 520/523 errors:
 
 ```bash
 # Download for a specific state (e.g., California = 06)
+# Defaults to census/tiger output and DuckDB state tracking
+python census/zip_dl.py --states 06 --parallel 4
+
+# Download with custom output directory
 python census/zip_dl.py --states 06 --output /data/tiger2024/ --parallel 4
 
 # Download for multiple states with resume capability
-python census/zip_dl.py --states 06,36,48 --output /data/tiger2024/ --resume
+python census/zip_dl.py --states 06,36,48 --resume
+
+# Use JSON state tracking instead of DuckDB
+python census/zip_dl.py --states 06 --no-use-db
 
 # Download all US states (warning: ~30GB!)
-python census/zip_dl.py --output /data/tiger2024/ --timeout 60
+python census/zip_dl.py --timeout 60
 
 # Resume interrupted downloads
-python census/zip_dl.py --states 06 --output /data/tiger2024/ --resume --verbose
+python census/zip_dl.py --states 06 --resume --verbose
 ```
 
 **New Features:**
+- **Default Output**: Downloads to `census/tiger` (configurable with `--output`)
+- **State Tracking**: Uses DuckDB by default (use `--no-use-db` for JSON)
 - **Automatic Retry**: 8 retry attempts with exponential backoff for 520/523/524 errors
 - **Resume Support**: Use `--resume` to skip already downloaded files
-- **State Tracking**: Download progress saved to `.tiger_download_state.json`
 - **Timeout Control**: Configure download timeout with `--timeout` (default: 60s)
 - **Reliability**: Reduced default parallel downloads to 4 for better stability
 
@@ -85,17 +93,20 @@ This will:
 For a streamlined workflow, use the unified script that downloads and imports progressively:
 
 ```bash
-# Download and import California in one command
-python tools/tiger_download_and_import.py geocoder.db /data/tiger2024/ \
-    --states 06 --verbose
+# Download and import California in one command (defaults to census/tiger)
+python tools/tiger_download_and_import.py geocoder.duckdb --states 06 --verbose
+
+# Specify custom output directory
+python tools/tiger_download_and_import.py geocoder.duckdb /data/tiger --states 06 --verbose
 
 # Download and import multiple states with cleanup
-python tools/tiger_download_and_import.py geocoder.db /data/tiger2024/ \
-    --states 06,36,48 --cleanup --verbose
+python tools/tiger_download_and_import.py geocoder.duckdb --states 06,36,48 --cleanup --verbose
 
 # Resume interrupted workflow
-python tools/tiger_download_and_import.py geocoder.db /data/tiger2024/ \
-    --states 06 --resume --verbose
+python tools/tiger_download_and_import.py geocoder.duckdb --resume --verbose
+
+# Use JSON state tracking instead of DuckDB
+python tools/tiger_download_and_import.py geocoder.duckdb --states 06 --no-use-db --verbose
 ```
 
 **Benefits:**
@@ -338,7 +349,7 @@ python census/zip_dl.py --states 06 --output /data/tiger2024/ \
 - Use `--resume` to skip already downloaded files and retry only failed ones
 - Reduce `--parallel` from 4 to 2 or 3 if server is overloaded
 - Increase `--timeout` from 60 to 90 or 120 seconds
-- Check `.tiger_download_state.json` to see which files failed
+- Check download status with `--show-status` (DuckDB) or view `.tiger_download_state.json` (JSON)
 - Downloads are validated - zero-byte files are automatically retried
 
 ### Download Issues: Connection Timeouts
@@ -347,8 +358,7 @@ If downloads timeout frequently:
 
 ```bash
 # Increase timeout and add delays between requests
-python census/zip_dl.py --states 06 --output /data/tiger2024/ \
-    --timeout 120 --parallel 2 --verbose
+python census/zip_dl.py --states 06 --timeout 120 --parallel 2 --verbose
 ```
 
 The script will automatically:
@@ -362,10 +372,13 @@ If downloads are interrupted (network issues, Ctrl+C, system reboot):
 
 ```bash
 # Just add --resume to skip already downloaded files
-python census/zip_dl.py --states 06 --output /data/tiger2024/ --resume --verbose
+python census/zip_dl.py --states 06 --resume --verbose
 
 # Check download status
-cat /data/tiger2024/.tiger_download_state.json | jq '.completed | length'
+python census/zip_dl.py --show-status
+
+# Or for JSON state tracking (with --no-use-db):
+cat census/tiger/.tiger_download_state.json | jq '.completed | length'
 ```
 
 The state file tracks:
