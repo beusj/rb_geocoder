@@ -7,13 +7,67 @@ BASE=$(dirname $0)
 PATH=$PATH:$BASE
 SQL="$BASE/sql"
 HELPER_LIB="$BASE/../lib/geocoder/us/sqlite3.so"
+
+# Parse command-line options
+DISCOVER_ONLY=0
+TYPES=""
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --discover-only)
+            DISCOVER_ONLY=1
+            # Set default types for discover-only if not already set
+            if [ -z "$TYPES" ]; then
+                TYPES="EDGES,ADDR,FEATNAMES"
+            fi
+            shift
+            ;;
+        --types)
+            TYPES="$2"
+            shift 2
+            ;;
+        --types=*)
+            TYPES="${1#*=}"
+            shift
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
+
 DATABASE=$1
 shift
 
+# Process TYPES option to set SHPS and DBFS
+if [ -n "$TYPES" ]; then
+    SHPS=""
+    DBFS=""
+    IFS=',' read -ra TYPE_ARRAY <<< "$TYPES"
+    for type in "${TYPE_ARRAY[@]}"; do
+        type_upper=$(echo "$type" | tr '[:lower:]' '[:upper:]')
+        case $type_upper in
+            EDGES)
+                SHPS="edges"
+                ;;
+            ADDR)
+                DBFS="$DBFS addr"
+                ;;
+            FEATNAMES)
+                DBFS="$DBFS featnames"
+                ;;
+        esac
+    done
+    # Trim leading/trailing spaces
+    DBFS=$(echo "$DBFS" | xargs)
+fi
+
 mkdir -p $TMP || exit 1
 
-# Initialize the database if it doesn't exist.
-[ ! -r $DATABASE ] && cat ${SQL}/{create,place}.sql | sqlite3 $DATABASE
+# Initialize the database if it doesn't exist (skip in discover-only mode).
+if [ $DISCOVER_ONLY -eq 0 ]; then
+    [ ! -r $DATABASE ] && cat ${SQL}/{create,place}.sql | sqlite3 $DATABASE
+fi
  
 # Marshal the county directories to import.
 #
@@ -27,33 +81,48 @@ else
     done
 fi | while read county; do
     echo "--- $county"
-    # Unpack the county files into the temp directory.
-    for file in $SHPS $DBFS; do
-	ZIP=$(ls ${county}/*_${file}.zip 2>/dev/null)
-	SHP=$(ls ${county}/*_${file}.* 2>/dev/null)
-	if [ x"$ZIP" != x"" ]; then
-	    unzip -q $ZIP -d $TMP
-	elif [ x"$SHP" != x"" ]; then
-	    ln -s $SHP $TMP
-	fi
-    done
-    # Generate an SQL stream to feed into the sqlite3 binary.
-    # Start by loading the helper libs and initializing the temporary tables
-    #   that will hold the TIGER data before ETL.
-    (echo ".load $HELPER_LIB" && \
-     cat ${SQL}/setup.sql && \
-     for file in $SHPS; do
-       # Convert each Shapefile into SQL statements.
-       shp2sqlite -aS ${TMP}/*_${file}.shp tiger_${file}
-     done && \
-     for file in $DBFS; do
-       # Convert each DBF into SQL statements likewise.
-       shp2sqlite -an ${TMP}/*_${file}.dbf tiger_${file}
-     done && \
-     cat ${SQL}/convert.sql) | sqlite3 $DATABASE
-    # Finally, do the transform/load phase (convert.sql)
-    # and clean up the temporary files.
-    rm -f $TMP/*
+    
+    if [ $DISCOVER_ONLY -eq 1 ]; then
+        # Discover-only mode: just list the files that would be processed
+        for file in $SHPS $DBFS; do
+            ZIP=$(ls ${county}/*_${file}.zip 2>/dev/null)
+            SHP=$(ls ${county}/*_${file}.* 2>/dev/null)
+            if [ x"$ZIP" != x"" ]; then
+                echo "  Would process: $ZIP"
+            elif [ x"$SHP" != x"" ]; then
+                echo "  Would process: $SHP"
+            fi
+        done
+    else
+        # Normal import mode
+        # Unpack the county files into the temp directory.
+        for file in $SHPS $DBFS; do
+            ZIP=$(ls ${county}/*_${file}.zip 2>/dev/null)
+            SHP=$(ls ${county}/*_${file}.* 2>/dev/null)
+            if [ x"$ZIP" != x"" ]; then
+                unzip -q $ZIP -d $TMP
+            elif [ x"$SHP" != x"" ]; then
+                ln -s $SHP $TMP
+            fi
+        done
+        # Generate an SQL stream to feed into the sqlite3 binary.
+        # Start by loading the helper libs and initializing the temporary tables
+        #   that will hold the TIGER data before ETL.
+        (echo ".load $HELPER_LIB" && \
+         cat ${SQL}/setup.sql && \
+         for file in $SHPS; do
+           # Convert each Shapefile into SQL statements.
+           shp2sqlite -aS ${TMP}/*_${file}.shp tiger_${file}
+         done && \
+         for file in $DBFS; do
+           # Convert each DBF into SQL statements likewise.
+           shp2sqlite -an ${TMP}/*_${file}.dbf tiger_${file}
+         done && \
+         cat ${SQL}/convert.sql) | sqlite3 $DATABASE
+        # Finally, do the transform/load phase (convert.sql)
+        # and clean up the temporary files.
+        rm -f $TMP/*
+    fi
 done 2>&1 | tee import-$$.log
 rm -rf $TMP
 
