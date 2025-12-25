@@ -309,7 +309,6 @@ The compressed format maintains sufficient precision for street-level geocoding 
 
 - [README_PYTHON.md](README_PYTHON.md) - Python/DuckDB implementation guide
 - [DATABASE_BUILD_GUIDE.md](DATABASE_BUILD_GUIDE.md) - Building databases from TIGER/Line
-- [tools/README.md](tools/README.md) - All import/export tools
 - [examples/demo_export.py](examples/demo_export.py) - Complete export workflow example
 
 ## Contributing
@@ -327,7 +326,7 @@ To improve the export tool:
 For issues or questions:
 
 1. Check this guide first
-2. Review the [tools/README.md](tools/README.md) documentation
+2. Review the [DATABASE_BUILD_GUIDE.md](DATABASE_BUILD_GUIDE.md) documentation
 3. Run with `--verbose` to see detailed progress
 4. Check test files for examples
 5. Open an issue on GitHub

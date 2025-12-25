@@ -139,8 +139,8 @@ Added "Step 4: Export to SQLite" section:
 - Command examples
 - Benefits and use cases
 
-### 4. `tools/README.md` (Updated)
-Added tool #4 documentation:
+### 4. `DATABASE_BUILD_GUIDE.md` (Updated)
+Added export tool documentation:
 - Features overview
 - Usage examples
 - Use cases
@@ -247,10 +247,9 @@ The exported SQLite database is fully compatible with:
 3. `examples/demo_export.py` - 210+ lines
 4. `EXPORT_GUIDE.md` - 300+ lines
 
-### Modified Files (3)
+### Modified Files (2)
 1. `README_PYTHON.md` - Added export section
-2. `DATABASE_BUILD_GUIDE.md` - Added Step 4
-3. `tools/README.md` - Added tool documentation
+2. `DATABASE_BUILD_GUIDE.md` - Added export documentation
 
 **Total Lines Added: ~1,500+**
 

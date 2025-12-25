@@ -26,9 +26,11 @@ rb_geocoder/
 │   └── ...                   # Other Ruby support files
 │
 ├── tools/                    # Database building utilities (Python)
-│   ├── README.md            # Tools documentation
+│   ├── tiger_download_and_import.py # Unified download and import tool
 │   ├── tiger_import_duckdb.py  # Import TIGER/Line to DuckDB
-│   └── rebuild_metaphones.py   # Generate phonetic codes
+│   ├── rebuild_metaphones.py   # Generate phonetic codes
+│   ├── export_duckdb_to_sqlite.py # Export to SQLite format
+│   └── utils.py               # Shared utility functions
 │
 ├── census/                   # TIGER/Line data download tools
 │   ├── README.md            # Census data download guide
@@ -78,9 +80,10 @@ rb_geocoder/
 ├── README.md                # Main project documentation
 ├── README.rdoc             # Ruby documentation (rdoc format)
 ├── README_PYTHON.md        # Python API documentation
-├── IMPLEMENTATION_GUIDE.md # Python implementation guide
 ├── DATABASE_BUILD_GUIDE.md # Database building tutorial
+├── CHANGES_SUMMARY.md      # Implementation changes and improvements
 ├── REFACTORING_SUMMARY.md  # Ruby→Python migration rationale
+├── EXPORT_GUIDE.md         # DuckDB to SQLite export guide
 ├── REST.rdoc               # REST API documentation
 ├── History.txt             # Changelog
 ├── TODO.txt                # Future enhancements
@@ -287,11 +290,11 @@ build/rebuild_cluster geocoder.db
 
 ### Guides
 
-- **IMPLEMENTATION_GUIDE.md** - Detailed Python implementation guide
+- **README_PYTHON.md** - Python API documentation
   - Quick start instructions
-  - Architecture overview
-  - Performance tuning
-  - Troubleshooting
+  - API reference
+  - Usage examples
+  - Batch geocoding
   
 - **DATABASE_BUILD_GUIDE.md** - Complete database building tutorial
   - TIGER/Line data download
@@ -448,7 +451,7 @@ These are generated during build/use and ignored by git:
 ### I want to contribute code
 
 1. Read: .github/copilot-instructions.md (this gives context)
-2. Read: IMPLEMENTATION_GUIDE.md (architecture)
+2. Read: README_PYTHON.md and DATABASE_BUILD_GUIDE.md (architecture and usage)
 3. Set up dev environment: `pip install -r requirements.txt`
 4. Run tests: `pytest test_geocoder_us.py -v`
 5. Make changes, write tests, submit PR
@@ -484,8 +487,9 @@ See REFACTORING_SUMMARY.md for detailed comparison.
 ## Questions?
 
 - **General usage**: See README.md or README_PYTHON.md
-- **Python implementation**: See IMPLEMENTATION_GUIDE.md
+- **Python API and usage**: See README_PYTHON.md
 - **Database building**: See DATABASE_BUILD_GUIDE.md
+- **Implementation changes**: See CHANGES_SUMMARY.md
 - **Why Python/DuckDB**: See REFACTORING_SUMMARY.md
 - **Code context**: See .github/copilot-instructions.md
 - **REST API**: See REST.rdoc

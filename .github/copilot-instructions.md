@@ -230,8 +230,8 @@ See `DATABASE_BUILD_GUIDE.md` for detailed instructions.
 ### Documentation
 - `README.md` - Main project documentation (Ruby-focused)
 - `README_PYTHON.md` - Python API documentation
-- `IMPLEMENTATION_GUIDE.md` - Python implementation guide
 - `DATABASE_BUILD_GUIDE.md` - Database building guide
+- `CHANGES_SUMMARY.md` - Implementation changes and improvements
 - `REFACTORING_SUMMARY.md` - Ruby→Python migration rationale
 
 ### Configuration

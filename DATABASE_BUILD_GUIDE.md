@@ -582,8 +582,8 @@ After building your database:
 - **TIGER/Line Data**: https://www.census.gov/geographies/mapping-files/time-series/geo/tiger-line-file.html
 - **DuckDB Documentation**: https://duckdb.org/docs/
 - **DuckDB Spatial Extension**: https://duckdb.org/docs/extensions/spatial.html
-- **Tools README**: `tools/README.md`
-- **API Documentation**: `README_PYTHON.md`
+- **Python API Documentation**: `README_PYTHON.md`
+- **Changes Summary**: `CHANGES_SUMMARY.md`
 
 ## Conclusion
 
