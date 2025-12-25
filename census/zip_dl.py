@@ -70,7 +70,7 @@ except ImportError:
 
 # Constants
 USER_AGENT = 'TIGERLine-Downloader/1.0'
-COUNTY_LEVEL_TYPES = ['EDGES', 'ADDR', 'FACES', 'FEATNAMES']
+COUNTY_LEVEL_TYPES = ['EDGES', 'ADDR', 'FEATNAMES']
 
 # State FIPS codes
 STATES = {
