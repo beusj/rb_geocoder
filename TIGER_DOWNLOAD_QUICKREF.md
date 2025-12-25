@@ -10,12 +10,35 @@ When downloading TIGER/Line files, you may encounter:
 
 ## Solution: Enhanced Download and Progressive Loading
 
+### State Tracking: JSON vs DuckDB
+
+The downloader supports two backends for tracking download state:
+
+**DuckDB Backend (Recommended for large downloads):**
+- Better scalability - handles millions of records efficiently
+- Concurrent access - multiple processes can safely read/write
+- Rich SQL querying - complex status queries
+- Integrated with the main geocoder database
+- Automatically used when `--use-db` flag is provided
+
+**JSON Backend (Default for compatibility):**
+- Simple and portable
+- Easy to inspect and debug
+- No additional setup required
+- Suitable for small to medium downloads
+
+The system automatically detects the appropriate backend based on file extensions (`.duckdb` or `.json`).
+
 ### Quick Start: Download and Import in One Command
 
 ```bash
-# Download and import California
+# Download and import California (uses JSON by default)
 python tools/tiger_download_and_import.py geocoder.db ./tiger \
     --states 06 --cleanup --verbose
+
+# Use DuckDB for better performance with large downloads
+python tools/tiger_download_and_import.py geocoder.db ./tiger \
+    --states 06 --cleanup --verbose --use-db
 
 # Resume interrupted workflow
 python tools/tiger_download_and_import.py geocoder.db ./tiger \
@@ -28,6 +51,7 @@ python tools/tiger_download_and_import.py geocoder.db ./tiger \
 - Resumes from interruption at any stage
 - Tracks all state: download → extract → load
 - Optionally cleans up ZIP files after import
+- **NEW**: DuckDB backend for scalable state tracking
 
 ### Alternative: Separate Download and Import
 
@@ -36,6 +60,12 @@ python tools/tiger_download_and_import.py geocoder.db ./tiger \
 ```bash
 # Download with automatic retry for 520/523 errors
 python census/zip_dl.py --states 06 --output ./tiger --verbose
+
+# Use DuckDB for better scalability (recommended for multiple states)
+python census/zip_dl.py --states 06,36,48 --output ./tiger --use-db --verbose
+
+# Discover all available files by scraping directories
+python census/zip_dl.py --states 06 --output ./tiger --discover --verbose
 
 # Resume failed downloads
 python census/zip_dl.py --states 06 --output ./tiger --resume --verbose
@@ -51,7 +81,9 @@ python census/zip_dl.py --states 06 --output ./tiger \
 - **Resume partial downloads** using HTTP Range headers
 - Validates file sizes (retries zero-byte files)
 - **Track states/territories requested** with detailed statistics
-- State saved to `.tiger_download_state.json`
+- **Directory scraping** with `--discover` to find all available files
+- State saved to `.tiger_download_state.json` or `.duckdb`
+- **DuckDB backend** for scalable tracking of large downloads
 
 #### Step 2: Import with Progressive Loading
 

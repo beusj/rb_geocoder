@@ -20,7 +20,8 @@ Options:
     --list-states       List all state FIPS codes
     --parallel N        Number of parallel downloads (default: 4)
     --resume            Resume from previous download session
-    --state-file FILE   Path to state file (default: .tiger_download_state.json)
+    --state-file FILE   Path to state file (default: .tiger_download_state.json or .duckdb)
+    --use-db            Use DuckDB for state tracking (default: auto-detect)
     --timeout N         Download timeout in seconds (default: 60)
 """
 
@@ -31,13 +32,20 @@ import urllib.request
 import urllib.error
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import List, Dict, Set
+from typing import List, Dict, Set, Union
 import time
 import random
 import json
 import hashlib
 import re
 from html.parser import HTMLParser
+
+# Try to import DuckDB backend
+try:
+    from census.download_state_db import DownloadStateDB, DUCKDB_AVAILABLE
+except ImportError:
+    DUCKDB_AVAILABLE = False
+    DownloadStateDB = None
 
 # Constants
 USER_AGENT = 'TIGERLine-Downloader/1.0'
@@ -786,6 +794,43 @@ def download_county_data(state_fips: str, year: int, output_dir: Path,
     
     return successful, failed, not_found
 
+def create_state_tracker(state_file: Path, use_db: bool = None) -> Union['DownloadState', 'DownloadStateDB']:
+    """
+    Create appropriate state tracker (DuckDB or JSON).
+    
+    Args:
+        state_file: Path to state file (with .json or .duckdb extension)
+        use_db: Force DB usage (True), JSON usage (False), or auto-detect (None)
+        
+    Returns:
+        DownloadState or DownloadStateDB instance
+    """
+    # Auto-detect based on file extension if not specified
+    if use_db is None:
+        if state_file.suffix == '.duckdb':
+            use_db = True
+        elif state_file.suffix == '.json':
+            use_db = False
+        else:
+            # Default to DB if available, otherwise JSON
+            use_db = DUCKDB_AVAILABLE
+    
+    # Create appropriate tracker
+    if use_db:
+        if not DUCKDB_AVAILABLE:
+            print("Warning: DuckDB requested but not available. Falling back to JSON.")
+            print("Install DuckDB with: pip install duckdb>=0.9.0")
+            return DownloadState(state_file.with_suffix('.json'))
+        
+        db_path = state_file.with_suffix('.duckdb')
+        print(f"Using DuckDB state tracker: {db_path}")
+        return DownloadStateDB(db_path)
+    else:
+        json_path = state_file.with_suffix('.json')
+        print(f"Using JSON state tracker: {json_path}")
+        return DownloadState(json_path)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description='Download TIGER/Line Shapefiles from US Census Bureau',
@@ -808,12 +853,14 @@ def main():
                         help='Show download status for all states/territories and exit')
     parser.add_argument('--discover', action='store_true',
                         help='Discover available files by scraping Census Bureau directories')
+    parser.add_argument('--use-db', action='store_true',
+                        help='Use DuckDB for state tracking (better for large downloads)')
     parser.add_argument('--parallel', type=int, default=4,
                         help='Number of parallel downloads (default: 4)')
     parser.add_argument('--resume', action='store_true',
                         help='Resume from previous download session')
-    parser.add_argument('--state-file', type=str, default='.tiger_download_state.json',
-                        help='Path to state file (default: .tiger_download_state.json)')
+    parser.add_argument('--state-file', type=str, default='.tiger_download_state',
+                        help='Path to state file (default: .tiger_download_state, extension added automatically)')
     parser.add_argument('--timeout', type=int, default=60,
                         help='Download timeout in seconds (default: 60)')
     
@@ -834,17 +881,34 @@ def main():
             print(f"  {fips} - {name}")
         return 0
     
-    # Handle status command
+    # Determine state file path (check for both .json and .duckdb)
     output_dir = Path(args.output)
-    state_file = output_dir / args.state_file
+    state_file_base = output_dir / args.state_file
+    
+    # Auto-detect existing state file
+    json_file = state_file_base.with_suffix('.json')
+    db_file = state_file_base.with_suffix('.duckdb')
+    
+    # Determine which file exists
+    existing_file = None
+    if db_file.exists():
+        existing_file = db_file
+    elif json_file.exists():
+        existing_file = json_file
     
     if args.show_status:
-        if not state_file.exists():
-            print(f"\nNo download state file found at: {state_file}")
+        if not existing_file:
+            print(f"\nNo download state file found")
+            print(f"Checked for: {json_file} or {db_file}")
             print("Start a download to create a state file.")
             return 1
         
-        download_state = DownloadState(state_file)
+        # Load existing state
+        if existing_file.suffix == '.duckdb':
+            download_state = DownloadStateDB(existing_file)
+        else:
+            download_state = DownloadState(existing_file)
+        
         states_list = download_state.list_states_requested()
         
         if not states_list:
@@ -854,7 +918,9 @@ def main():
         print(f"\n{'='*70}")
         print(f"Download Status Summary")
         print(f"{'='*70}")
-        print(f"State File: {state_file}")
+        print(f"State File: {existing_file}")
+        backend = "DuckDB" if existing_file.suffix == '.duckdb' else "JSON"
+        print(f"Backend:    {backend}")
         print(f"{'='*70}\n")
         
         for state_fips in sorted(states_list):
@@ -940,8 +1006,9 @@ def main():
     
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    # Initialize state tracking
-    download_state = DownloadState(state_file)
+    # Initialize state tracking - use appropriate backend
+    use_db = args.use_db if hasattr(args, 'use_db') else None
+    download_state = create_state_tracker(state_file_base, use_db=use_db)
     
     if args.resume:
         summary = download_state.get_summary()
@@ -961,7 +1028,10 @@ def main():
     print(f"Dataset Types: {', '.join(type_list)}")
     print(f"Parallel DLs:  {args.parallel}")
     print(f"Timeout:       {args.timeout}s")
-    print(f"State File:    {state_file}")
+    backend = "DuckDB" if isinstance(download_state, DownloadStateDB) else "JSON"
+    state_file_actual = state_file_base.with_suffix('.duckdb' if isinstance(download_state, DownloadStateDB) else '.json')
+    print(f"State Backend: {backend}")
+    print(f"State File:    {state_file_actual}")
     print(f"{'='*70}\n")
     
     # Download data for each state
