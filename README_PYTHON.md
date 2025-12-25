@@ -199,6 +199,29 @@ duck_conn.execute("INSTALL spatial;")
 duck_conn.execute("LOAD spatial;")
 ```
 
+### Converting from DuckDB to SQLite (for Ruby compatibility)
+
+If you need to export a DuckDB database back to SQLite format for use with the Ruby version, use the export tool:
+
+```bash
+# Basic export
+python tools/export_duckdb_to_sqlite.py geocoder.duckdb geocoder.db --verbose
+
+# Overwrite existing SQLite database
+python tools/export_duckdb_to_sqlite.py geocoder.duckdb geocoder.db --overwrite --verbose
+```
+
+This tool:
+- Exports all tables (place, feature, edge, range, feature_edge)
+- Converts geometry format from WKB to Ruby-compatible compressed format
+- Preserves metaphone columns and indexes
+- Creates a database fully compatible with the Ruby Geocoder::US library
+
+The geometry conversion process:
+- **DuckDB format**: WKB (Well-Known Binary) standard format
+- **SQLite/Ruby format**: Compressed format with coordinates as 4-byte signed integers (multiplied by 1,000,000)
+- The export tool automatically handles this conversion for the `edge` table
+
 ## Testing
 
 ```bash

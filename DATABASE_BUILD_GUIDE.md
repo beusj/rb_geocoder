@@ -105,7 +105,28 @@ python tools/tiger_download_and_import.py geocoder.db /data/tiger2024/ \
 - Resumes from interruption at any stage
 - Optional cleanup of ZIP files after import
 
-### Step 4: (Optional) Rebuild Metaphones
+### Step 4: Export to SQLite (Optional - for Ruby compatibility)
+
+If you need to use the database with the Ruby version, you can export it to SQLite format:
+
+```bash
+# Export DuckDB database to SQLite
+python tools/export_duckdb_to_sqlite.py geocoder.db geocoder.sqlite --verbose
+
+# Or overwrite existing SQLite database
+python tools/export_duckdb_to_sqlite.py geocoder.db geocoder.sqlite --overwrite --verbose
+```
+
+The export tool:
+- ✅ Converts all tables from DuckDB to SQLite format
+- ✅ Converts geometry BLOBs from WKB to Ruby-compatible compressed format
+- ✅ Preserves all metaphone codes and indexes
+- ✅ Creates a database fully compatible with `Geocoder::US::Database` in Ruby
+- ✅ Maintains spatial precision (coordinates stored as int32 * 1,000,000)
+
+**Note:** The Ruby version expects geometries in a specific compressed format where coordinates are stored as 4-byte signed integers (lat/lon * 1,000,000). The export tool handles this conversion automatically.
+
+### Step 5: (Optional) Rebuild Metaphones
 
 If you add data later or want to regenerate metaphones:
 
@@ -113,7 +134,7 @@ If you add data later or want to regenerate metaphones:
 python tools/rebuild_metaphones.py geocoder.db --verbose
 ```
 
-### Step 5: Test Your Database
+### Step 6: Test Your Database
 
 ```bash
 # Quick test
