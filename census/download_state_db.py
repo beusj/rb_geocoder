@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """
+
 DuckDB-based download state tracking for improved scalability and concurrent access.
 
 This module provides a DuckDB backend for tracking download state, offering:
@@ -9,16 +10,18 @@ This module provides a DuckDB backend for tracking download state, offering:
 - Integration with the main geocoder database workflow
 """
 
-import time
-from pathlib import Path
-from typing import Dict, List, Set, Optional
-import json
-
+# Ensure DUCKDB_AVAILABLE is set before any other code executes
 try:
     import duckdb
     DUCKDB_AVAILABLE = True
 except ImportError:
     DUCKDB_AVAILABLE = False
+
+import time
+from pathlib import Path
+from typing import Dict, List, Set, Optional
+import json
+import sys
 
 # State FIPS codes (duplicated from zip_dl.py to avoid circular import)
 STATES = {

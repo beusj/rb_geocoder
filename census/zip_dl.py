@@ -54,9 +54,13 @@ import hashlib
 import re
 from html.parser import HTMLParser
 
+# Ensure parent directory is in sys.path for imports, particularly from download_state_db
+sys.path.append(str(Path(__file__).parent.parent))
+
 # Try to import DuckDB backend
 try:
     from census.download_state_db import DownloadStateDB, DUCKDB_AVAILABLE
+    print("download_state_db.py: DUCKDB_AVAILABLE =", DUCKDB_AVAILABLE)
 except ImportError:
     DUCKDB_AVAILABLE = False
     DownloadStateDB = None
