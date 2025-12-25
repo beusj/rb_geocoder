@@ -14,7 +14,7 @@ from unittest.mock import patch, MagicMock
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from census.zip_dl import (
+from rb_geocoder.census.census_db_dl import (
     discover_and_populate_state,
     DownloadState,
     discover_state_files,
@@ -271,7 +271,7 @@ class TestDiscoverOnlyDefaults:
         
         # Parse arguments using the same parser as the main script
         # We need to import and call the parser configuration
-        from census import zip_dl
+        from rb_geocoder.census import census_db_dl
         
         # Create a simple mock to test the argument parsing logic
         with patch('sys.argv', test_args):
@@ -284,7 +284,7 @@ class TestDiscoverOnlyDefaults:
                     
                     # Call main
                     try:
-                        zip_dl.main()
+                        census_db_dl.main()
                     except SystemExit as e:
                         # main() returns 0 for success
                         assert e.code == 0
@@ -314,7 +314,7 @@ class TestDiscoverOnlyDefaults:
             '--no-use-db'
         ]
         
-        from census import zip_dl
+        from rb_geocoder.census import census_db_dl
         
         with patch('sys.argv', test_args):
             with patch('census.zip_dl.discover_and_populate_state') as mock_discover:
@@ -324,7 +324,7 @@ class TestDiscoverOnlyDefaults:
                     mock_discover.return_value = 0
                     
                     try:
-                        zip_dl.main()
+                        census_db_dl.main()
                     except SystemExit as e:
                         assert e.code == 0
                     

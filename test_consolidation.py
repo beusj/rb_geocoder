@@ -11,7 +11,7 @@ from pathlib import Path
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from census.zip_dl import create_state_tracker, DUCKDB_AVAILABLE
+from rb_geocoder.census.census_db_dl import create_state_tracker, DUCKDB_AVAILABLE
 
 
 class TestConsolidation:
@@ -55,7 +55,7 @@ class TestConsolidation:
             state_file = Path(tmpdir) / '.tiger_download_state'
             
             # Create with JSON backend (use_db=False)
-            from census.zip_dl import DownloadState
+            from rb_geocoder.census.census_db_dl import DownloadState
             tracker = create_state_tracker(state_file, use_db=False)
             
             # Verify it's using JSON backend
@@ -78,7 +78,7 @@ class TestConsolidation:
         from io import StringIO
         
         # Capture help output to verify default
-        from census import zip_dl
+        from rb_geocoder.census import census_db_dl
         
         # Create a test parser to check defaults
         parser = argparse.ArgumentParser()

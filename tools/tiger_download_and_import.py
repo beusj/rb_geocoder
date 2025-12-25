@@ -38,7 +38,7 @@ from typing import Optional
 # Add parent directory to path to import from census and tools
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from census.zip_dl import download_county_data, DownloadState, STATES, DATASET_TYPES, COUNTY_LEVEL_TYPES, create_state_tracker
+from rb_geocoder.census.census_db_dl import download_county_data, DownloadState, STATES, DATASET_TYPES, COUNTY_LEVEL_TYPES, create_state_tracker
 from tools.tiger_import_duckdb import import_tiger_data
 from tools.utils import validate_database_extension
 
@@ -191,7 +191,7 @@ def run_workflow(database: str, output_dir: str, states: Optional[list] = None,
         
         # Download state data
         print(f"\nPhase 1: Downloading...")
-        from census.zip_dl import get_county_list
+        from rb_geocoder.census.census_db_dl import get_county_list
         year = 2024
         successful, failed, not_found = download_county_data(
             state_fips, year, output_path, type_list, parallel, timeout, download_state

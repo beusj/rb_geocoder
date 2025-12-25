@@ -35,7 +35,7 @@ import time
 
 # Add parent directory to path to import from census
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from census.zip_dl import COUNTY_LEVEL_TYPES
+from rb_geocoder.census.census_db_dl import COUNTY_LEVEL_TYPES
 from tools.utils import validate_database_extension
 
 

@@ -13,7 +13,7 @@ import sys
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from census.zip_dl import DownloadState
+from rb_geocoder.census.census_db_dl import DownloadState
 
 
 class TestDownloadState:

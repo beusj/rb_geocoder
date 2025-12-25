@@ -18,7 +18,7 @@ from pathlib import Path
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from census.zip_dl import DownloadState, discover_and_populate_state, STATES
+from rb_geocoder.census.census_db_dl import DownloadState, discover_and_populate_state, STATES
 from unittest.mock import patch
 
 

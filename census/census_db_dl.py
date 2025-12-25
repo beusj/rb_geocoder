@@ -9,7 +9,7 @@ This script downloads various geographic datasets including:
 - And other geographic boundaries
 
 Usage:
-    python zip_dl.py [options]
+    python census_db_dl.py [options]
 
 Options:
     --year YEAR         Year to download (default: 2024)
@@ -30,16 +30,17 @@ Options:
 
 Examples:
     # Discover and populate URLs without downloading (defaults to EDGES,ADDR,FEATNAMES):
-    python zip_dl.py --discover-only --states 13
+    python census_db_dl.py --discover-only --states 13
     
     # Discover and populate URLs with specific types:
-    python zip_dl.py --discover-only --states 13 --types EDGES,ADDR
+    python census_db_dl.py --discover-only --states 13 --types EDGES,ADDR
     
     # Check discovered URLs:
-    python zip_dl.py --show-status
+    python census_db_dl.py --show-status
     
     # Download discovered files:
-    python zip_dl.py --states 13 --discover --resume
+    python census_db_dl.py --states 13 --discover --resume
+    python census_db_dl.py --discover --resume
 """
 
 import os
@@ -63,7 +64,6 @@ sys.path.append(str(Path(__file__).parent.parent))
 # Try to import DuckDB backend
 try:
     from census.download_state_db import DownloadStateDB, DUCKDB_AVAILABLE
-    print("download_state_db.py: DUCKDB_AVAILABLE =", DUCKDB_AVAILABLE)
 except ImportError:
     DUCKDB_AVAILABLE = False
     DownloadStateDB = None
@@ -162,6 +162,44 @@ def scrape_directory(url: str, timeout: int = 30) -> Set[str]:
         print(f"Warning: Could not scrape directory {url}: {e}")
         return set()
 
+def sync_state_with_filesystem(output_dir: Path, download_state, state_list):
+    """
+    Scan the output directory for downloaded files and ensure the state database is consistent.
+    Mark files as completed in the state if they exist and are not already marked.
+    Optionally, warn about files marked as completed in the state but missing on disk.
+    """
+    print(f"\n{'='*70}")
+    print("Synchronizing state database with file system...")
+    print(f"Output directory: {output_dir}")
+    updated = 0
+    missing = 0
+    for state_fips in state_list:
+        state_dir = output_dir / state_fips
+        if not state_dir.exists():
+            continue
+        for file in state_dir.glob('*.zip'):
+            file_key = str(file)
+            # If not marked as completed, mark it now
+            if not download_state.is_completed(file_key):
+                # Try to get URL from discovered_urls if available
+                url = None
+                if hasattr(download_state, 'data') and 'discovered_urls' in download_state.data and state_fips in download_state.data['discovered_urls']:
+                    for u in download_state.data['discovered_urls'][state_fips]:
+                        if file.name in u:
+                            url = u
+                            break
+                if not url:
+                    url = f"UNKNOWN_URL_FOR_{file.name}"
+                download_state.mark_completed(url, file_key, state_fips, file.stat().st_size)
+                updated += 1
+    # Check for files marked as completed in state but missing on disk
+    if hasattr(download_state, 'data') and 'files' in download_state.data:
+        for file_key, file_data in download_state.data['files'].items():
+            if file_data.get('status') == 'completed' and not Path(file_key).exists():
+                print(f"Warning: File marked as completed in state but missing: {file_key}")
+                missing += 1
+    print(f"Synchronization complete. {updated} file(s) marked as completed. {missing} missing file(s) found.")
+    print(f"{'='*70}\n")
 
 def discover_state_files(state_fips: str, year: int, dataset_types: List[str], timeout: int = 30) -> Dict[str, Set[str]]:
     """
@@ -717,76 +755,62 @@ def download_county_data(state_fips: str, year: int, output_dir: Path,
     print(f"{'='*70}")
     
     download_tasks = []
-    
+    counties = []  # Always define counties
     # If discover_files is True, scrape directories instead of using hardcoded patterns
     if discover_files:
         print(f"\nDiscovering available files from Census Bureau...")
         discovered = discover_state_files(state_fips, year, dataset_types, timeout)
-        
         # Store all discovered URLs in state
         all_urls = set()
         for dataset_type, urls in discovered.items():
             all_urls.update(urls)
-        
         if state:
             state.set_discovered_urls(state_fips, all_urls)
-        
         print(f"Total files discovered: {len(all_urls)}")
-        
         # Build download tasks from discovered URLs
         for url in all_urls:
             filename = url.split('/')[-1]
             output_path = output_dir / state_fips / filename
-            
             # Skip if already completed
             if state and state.is_completed(str(output_path)):
                 continue
-            
             download_tasks.append((url, output_path))
-    
+        # In discover mode, we don't calculate skipped files based on counties
+        skipped = 0
     else:
         # Original behavior: use hardcoded county list
         counties = get_county_list(state_fips, year)
-        
         for dataset_type in dataset_types:
             if dataset_type in COUNTY_LEVEL_TYPES:
                 # County-level datasets
                 for county_fips in counties:
                     url = construct_url(year, state_fips, county_fips, dataset_type)
                     output_path = output_dir / state_fips / f"tl_{year}_{state_fips}{county_fips}_{dataset_type.lower()}.zip"
-                    
                     # Skip if already completed
                     if state and state.is_completed(str(output_path)):
                         continue
-                        
                     download_tasks.append((url, output_path))
             else:
                 # State-level or national datasets
                 url = construct_url(year, state_fips, None, dataset_type)
                 filename = url.split('/')[-1]
                 output_path = output_dir / state_fips / filename
-                
                 # Skip if already completed
                 if state and state.is_completed(str(output_path)):
                     continue
-                
-            download_tasks.append((url, output_path))
-    
+                download_tasks.append((url, output_path))
+        # Calculate skipped count only in non-discover mode
+        skipped = 0
+        if state:
+            total_possible = len(counties) * len([t for t in dataset_types if t in COUNTY_LEVEL_TYPES])
+            total_possible += len([t for t in dataset_types if t not in ['EDGES', 'ADDR', 'FACES', 'FEATNAMES']])
+            skipped = total_possible - len(download_tasks)
     # Download in parallel
     successful = 0
     failed = 0
     not_found = 0
-    skipped = 0
-    
-    # Calculate skipped count
-    if state:
-        total_possible = len(counties) * len([t for t in dataset_types if t in COUNTY_LEVEL_TYPES])
-        total_possible += len([t for t in dataset_types if t not in ['EDGES', 'ADDR', 'FACES', 'FEATNAMES']])
-        skipped = total_possible - len(download_tasks)
-    
     if skipped > 0:
         print(f"Skipping {skipped} already downloaded files")
-    
     if not download_tasks:
         print("All files already downloaded")
         return successful, failed, not_found
@@ -896,6 +920,8 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__
     )
+    parser.add_argument('--sync-state', action='store_true',
+                        help='Synchronize state database with files on disk (mark completed if file exists)')
     parser.add_argument('--year', type=int, default=2024,
                         help='Year to download (default: 2024)')
     parser.add_argument('--output', type=str, default='census/tiger',
@@ -947,17 +973,28 @@ def main():
     # Determine state file path (check for both .json and .duckdb)
     output_dir = Path(args.output)
     state_file_base = output_dir / args.state_file
-    
+
     # Auto-detect existing state file
     json_file = state_file_base.with_suffix('.json')
     db_file = state_file_base.with_suffix('.duckdb')
-    
+
     # Determine which file exists
     existing_file = None
     if db_file.exists():
         existing_file = db_file
     elif json_file.exists():
         existing_file = json_file
+
+    # Always sync state with file system before any other command
+    if existing_file:
+        if existing_file.suffix == '.duckdb':
+            download_state_for_sync = DownloadStateDB(existing_file)
+        else:
+            download_state_for_sync = DownloadState(existing_file)
+        states_list_for_sync = download_state_for_sync.list_states_requested()
+        if not states_list_for_sync:
+            states_list_for_sync = list(STATES.keys())
+        sync_state_with_filesystem(output_dir, download_state_for_sync, states_list_for_sync)
     
     if args.show_status:
         if not existing_file:
@@ -1042,11 +1079,7 @@ def main():
         
         return 0
     
-    # Validate discover-only mode requirements
-    if args.discover_only and not args.states:
-        print("Error: --discover-only requires --states to be specified")
-        print("Use --list-states to see valid state FIPS codes")
-        return 1
+    # No longer require --states for --discover-only; default to all states if not provided
     
     # Determine which states to download
     if args.states:
@@ -1058,7 +1091,11 @@ def main():
             print("Use --list-states to see valid codes")
             return 1
     else:
-        state_list = list(STATES.keys())
+        # If --discover or --discover-only is set, default to all states if --states is not provided
+        if args.discover or args.discover_only:
+            state_list = list(STATES.keys())
+        else:
+            state_list = list(STATES.keys())
     
     # Determine which dataset types to download
     if args.types:
