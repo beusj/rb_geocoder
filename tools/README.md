@@ -143,6 +143,42 @@ python rebuild_metaphones.py geocoder.duckdb
 **Replaces:**
 - `bin/rebuild_metaphones` (Ruby script)
 
+### 4. `export_duckdb_to_sqlite.py` ⭐ NEW
+Exports DuckDB database to SQLite format compatible with the Ruby version.
+
+**Features:**
+- Converts all tables from DuckDB to SQLite
+- Handles geometry format conversion (WKB → compressed format)
+- Preserves metaphone codes and indexes
+- Creates database compatible with Ruby `Geocoder::US::Database`
+- Validates data integrity during export
+- Progress reporting
+
+**Usage:**
+```bash
+# Basic export
+python export_duckdb_to_sqlite.py geocoder.duckdb geocoder.db --verbose
+
+# Overwrite existing database
+python export_duckdb_to_sqlite.py geocoder.duckdb geocoder.db --overwrite --verbose
+
+# Quiet mode
+python export_duckdb_to_sqlite.py geocoder.duckdb geocoder.db
+```
+
+**Geometry Conversion:**
+The tool automatically converts geometry formats:
+- **DuckDB**: WKB (Well-Known Binary) standard format
+- **SQLite/Ruby**: Compressed format with coordinates as 4-byte signed integers (multiplied by 1,000,000)
+
+This ensures full compatibility with the Ruby version's `unpack_geometry` method.
+
+**Use Cases:**
+- Migrating from Python/DuckDB back to Ruby/SQLite
+- Creating SQLite databases for deployment where Ruby is required
+- Testing database compatibility between Python and Ruby versions
+- Distributing pre-built databases for Ruby users
+
 ## Prerequisites
 
 ```bash
@@ -181,6 +217,7 @@ pip install duckdb jellyfish
 | Import TIGER/Line shapefiles | ✅ | ✅ | Complete |
 | Generate metaphones | ✅ | ✅ | Complete |
 | Build indexes | ✅ | ✅ | Complete |
+| Export to SQLite | ❌ | ✅ | New |
 | Progress reporting | ⚠️ | ✅ | Improved |
 | Parallel processing | ❌ | ✅ | New |
 | Dry-run mode | ❌ | ✅ | New |
