@@ -13,7 +13,7 @@ Usage:
 
 Options:
     --year YEAR         Year to download (default: 2024)
-    --output DIR        Output directory (default: ./tiger2024)
+    --output DIR        Output directory (default: census/tiger)
     --states STATE      Download specific state(s) (comma-separated FIPS codes)
     --types TYPE        Download specific types (comma-separated)
     --list-types        List available dataset types
@@ -21,7 +21,8 @@ Options:
     --parallel N        Number of parallel downloads (default: 4)
     --resume            Resume from previous download session
     --state-file FILE   Path to state file (default: .tiger_download_state.json or .duckdb)
-    --use-db            Use DuckDB for state tracking (default: auto-detect)
+    --use-db            Use DuckDB for state tracking (default: enabled)
+    --no-use-db         Use JSON for state tracking instead of DuckDB
     --timeout N         Download timeout in seconds (default: 60)
 """
 
@@ -839,8 +840,8 @@ def main():
     )
     parser.add_argument('--year', type=int, default=2024,
                         help='Year to download (default: 2024)')
-    parser.add_argument('--output', type=str, default='./tiger',
-                        help='Output directory (default: ./tiger)')
+    parser.add_argument('--output', type=str, default='census/tiger',
+                        help='Output directory (default: census/tiger)')
     parser.add_argument('--states', type=str,
                         help='Comma-separated state FIPS codes (e.g., "01,06,48")')
     parser.add_argument('--types', type=str,
@@ -853,8 +854,10 @@ def main():
                         help='Show download status for all states/territories and exit')
     parser.add_argument('--discover', action='store_true',
                         help='Discover available files by scraping Census Bureau directories')
-    parser.add_argument('--use-db', action='store_true',
-                        help='Use DuckDB for state tracking (better for large downloads)')
+    parser.add_argument('--use-db', action='store_true', default=True,
+                        help='Use DuckDB for state tracking (default: enabled)')
+    parser.add_argument('--no-use-db', dest='use_db', action='store_false',
+                        help='Use JSON for state tracking instead of DuckDB')
     parser.add_argument('--parallel', type=int, default=4,
                         help='Number of parallel downloads (default: 4)')
     parser.add_argument('--resume', action='store_true',
