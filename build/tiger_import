@@ -54,10 +54,16 @@ if [ -n "$TYPES" ]; then
                 SHPS="edges"
                 ;;
             ADDR)
-                DBFS="$DBFS addr"
+                # Only add if not already present
+                if [[ ! " $DBFS " =~ " addr " ]]; then
+                    DBFS="$DBFS addr"
+                fi
                 ;;
             FEATNAMES)
-                DBFS="$DBFS featnames"
+                # Only add if not already present
+                if [[ ! " $DBFS " =~ " featnames " ]]; then
+                    DBFS="$DBFS featnames"
+                fi
                 ;;
             *)
                 echo "Warning: Unknown type '$type' ignored. Valid types are: EDGES, ADDR, FEATNAMES" >&2
