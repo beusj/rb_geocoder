@@ -48,7 +48,9 @@ python census/zip_dl.py --states 06 --output ./tiger \
 **Download Features:**
 - 8 retry attempts with exponential backoff (2s → 60s max)
 - Skip already downloaded files with `--resume`
+- **Resume partial downloads** using HTTP Range headers
 - Validates file sizes (retries zero-byte files)
+- **Track states/territories requested** with detailed statistics
 - State saved to `.tiger_download_state.json`
 
 #### Step 2: Import with Progressive Loading
@@ -95,16 +97,36 @@ python census/zip_dl.py --states 06 --output ./tiger --resume
 The script will:
 - Read `.tiger_download_state.json` to see what's completed
 - Skip all successfully downloaded files
+- **Resume partial downloads** from where they left off using HTTP Range headers
 - Retry only failed files
 
 ### Check Download Status
 
+**NEW: View detailed status summary:**
+```bash
+# Show comprehensive status for all states/territories
+python census/zip_dl.py --show-status --output ./tiger
+
+# This displays:
+# - States/territories that have been requested
+# - Completed vs failed downloads per state
+# - Sample URLs for each state
+# - Overall statistics
+```
+
+**View raw state file:**
 ```bash
 # See completed downloads
 cat ./tiger/.tiger_download_state.json | jq '.completed | length'
 
 # See failed downloads
 cat ./tiger/.tiger_download_state.json | jq '.failed'
+
+# See all states requested
+cat ./tiger/.tiger_download_state.json | jq '.states | keys'
+
+# See details for specific state (e.g., California - 06)
+cat ./tiger/.tiger_download_state.json | jq '.states["06"]'
 ```
 
 ### Check Import Status
@@ -120,6 +142,8 @@ cat .tiger_import_state.json | jq '.failed'
 ## State Files Reference
 
 ### Download State (`.tiger_download_state.json`)
+
+**Enhanced structure with state/territory tracking:**
 ```json
 {
   "files": {
@@ -127,13 +151,36 @@ cat .tiger_import_state.json | jq '.failed'
       "status": "completed",
       "timestamp": 1703456789.123,
       "url": "https://www2.census.gov/...",
-      "path": "/path/to/file.zip"
+      "path": "/path/to/file.zip",
+      "size": 1024000,
+      "state": "06"
+    },
+    "/path/to/partial.zip": {
+      "status": "partial",
+      "timestamp": 1703456789.123,
+      "url": "https://www2.census.gov/...",
+      "path": "/path/to/partial.zip",
+      "bytes_downloaded": 524288,
+      "state": "06"
     }
   },
   "completed": ["url1", "url2", ...],
-  "failed": ["url3", ...]
+  "failed": ["url3", ...],
+  "states": {
+    "06": {
+      "name": "California",
+      "completed": 123,
+      "failed": 2,
+      "urls": []
+    }
+  }
 }
 ```
+
+**File status values:**
+- `completed` - File successfully downloaded
+- `failed` - Download failed after all retries
+- `partial` - Download interrupted, can be resumed
 
 ### Import State (`.tiger_import_state.json`)
 ```json
@@ -173,10 +220,12 @@ cat .tiger_import_state.json | jq '.failed'
 ## Best Practices
 
 ### For Reliable Downloads
-1. **Use --resume** - Always use resume to skip completed files
-2. **Reduce parallelism** - Use `--parallel 2` or `3` for unreliable connections
-3. **Increase timeout** - Use `--timeout 90` or `120` for slow connections
-4. **Monitor progress** - Use `--verbose` to see retry attempts
+1. **Use --resume** - Always use resume to skip completed files and resume partial downloads
+2. **Check status** - Use `--show-status` to see progress for all states/territories
+3. **Reduce parallelism** - Use `--parallel 2` or `3` for unreliable connections
+4. **Increase timeout** - Use `--timeout 90` or `120` for slow connections
+5. **Monitor progress** - Use `--verbose` to see retry attempts
+6. **Don't delete temp files** - `.tmp` files are used to resume partial downloads
 
 ### For Efficient Import
 1. **Use progressive mode** - Import files as they arrive with `--progressive`
@@ -198,11 +247,12 @@ cat .tiger_import_state.json | jq '.failed'
 --output DIR        Output directory (default: ./tiger)
 --parallel N        Number of parallel downloads (default: 4)
 --timeout N         Download timeout in seconds (default: 60)
---resume            Resume from previous session
+--resume            Resume from previous session (includes partial downloads)
 --state-file FILE   State file path (default: .tiger_download_state.json)
 --verbose           Show detailed progress
 --list-states       List all state FIPS codes
 --list-types        List all dataset types
+--show-status       Show download status for all states/territories
 ```
 
 ### Import Script (`tools/tiger_import_duckdb.py`)
@@ -229,8 +279,19 @@ cat .tiger_import_state.json | jq '.failed'
 ### Downloads keep failing with 520/523 errors
 - Reduce `--parallel` to 2
 - Increase `--timeout` to 90 or 120
-- Use `--resume` to retry only failed files
+- Use `--resume` to retry only failed files and resume partial downloads
 - Try downloading during off-peak hours
+
+### Partial downloads are not resuming
+- Make sure you're using `--resume` flag
+- Don't delete `.tmp` files - they contain partial downloads
+- Check that the state file exists and is valid JSON
+- The script will automatically resume from the byte offset where it stopped
+
+### Want to see what's been downloaded?
+- Use `--show-status` to see a summary of all states/territories
+- Shows completed, failed, and partial downloads per state
+- Lists sample URLs for verification
 
 ### Import is too slow
 - Use `--progressive` to start importing while downloading
