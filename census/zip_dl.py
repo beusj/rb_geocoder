@@ -20,7 +20,8 @@ Options:
     --list-states       List all state FIPS codes
     --parallel N        Number of parallel downloads (default: 4)
     --resume            Resume from previous download session
-    --state-file FILE   Path to state file (default: .tiger_download_state.json)
+    --state-file FILE   Path to state file (default: .tiger_download_state.json or .duckdb)
+    --use-db            Use DuckDB for state tracking (default: auto-detect)
     --timeout N         Download timeout in seconds (default: 60)
 """
 
@@ -31,11 +32,20 @@ import urllib.request
 import urllib.error
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import List, Dict
+from typing import List, Dict, Set, Union
 import time
 import random
 import json
 import hashlib
+import re
+from html.parser import HTMLParser
+
+# Try to import DuckDB backend
+try:
+    from census.download_state_db import DownloadStateDB, DUCKDB_AVAILABLE
+except ImportError:
+    DUCKDB_AVAILABLE = False
+    DownloadStateDB = None
 
 # Constants
 USER_AGENT = 'TIGERLine-Downloader/1.0'
@@ -81,6 +91,88 @@ DATASET_TYPES = {
     'ELSD': 'Elementary School Districts',
     'SCSD': 'Secondary School Districts',
 }
+
+class DirectoryParser(HTMLParser):
+    """Parse HTML directory listings to extract file links."""
+    
+    def __init__(self):
+        super().__init__()
+        self.links = []
+        self.in_link = False
+        
+    def handle_starttag(self, tag, attrs):
+        if tag == 'a':
+            self.in_link = True
+            for attr, value in attrs:
+                if attr == 'href' and value.endswith('.zip'):
+                    self.links.append(value)
+    
+    def handle_endtag(self, tag):
+        if tag == 'a':
+            self.in_link = False
+
+
+def scrape_directory(url: str, timeout: int = 30) -> Set[str]:
+    """
+    Scrape a Census Bureau directory page to discover available files.
+    
+    Args:
+        url: Directory URL to scrape
+        timeout: Request timeout in seconds
+        
+    Returns:
+        Set of file URLs found in the directory
+    """
+    try:
+        req = urllib.request.Request(url, headers={'User-Agent': USER_AGENT})
+        with urllib.request.urlopen(req, timeout=timeout) as response:
+            html = response.read().decode('utf-8')
+            
+        parser = DirectoryParser()
+        parser.feed(html)
+        
+        # Convert relative URLs to absolute URLs
+        base_url = url if url.endswith('/') else url + '/'
+        absolute_urls = {base_url + link for link in parser.links if link.endswith('.zip')}
+        
+        return absolute_urls
+        
+    except Exception as e:
+        print(f"Warning: Could not scrape directory {url}: {e}")
+        return set()
+
+
+def discover_state_files(state_fips: str, year: int, dataset_types: List[str], timeout: int = 30) -> Dict[str, Set[str]]:
+    """
+    Discover all available files for a state by scraping Census Bureau directories.
+    
+    Args:
+        state_fips: State FIPS code
+        year: Year to download
+        dataset_types: List of dataset types to discover
+        timeout: Request timeout in seconds
+        
+    Returns:
+        Dictionary mapping dataset type to set of discovered URLs
+    """
+    discovered = {}
+    base_url = f"https://www2.census.gov/geo/tiger/TIGER{year}"
+    
+    for dataset_type in dataset_types:
+        print(f"  Discovering {dataset_type} files for state {state_fips}...")
+        directory_url = f"{base_url}/{dataset_type}/"
+        
+        all_urls = scrape_directory(directory_url, timeout)
+        
+        # Filter URLs for this specific state
+        state_pattern = re.compile(f"tl_{year}_{state_fips}\\d{{3}}_{dataset_type.lower()}\\.zip")
+        state_urls = {url for url in all_urls if state_pattern.search(url)}
+        
+        discovered[dataset_type] = state_urls
+        print(f"    Found {len(state_urls)} {dataset_type} files")
+    
+    return discovered
+
 
 def get_county_list(state_fips: str, year: int = 2024) -> List[str]:
     """
@@ -139,8 +231,18 @@ class DownloadState:
                 with open(self.state_file, 'r') as f:
                     return json.load(f)
             except Exception:
-                return {'files': {}, 'completed': [], 'failed': []}
-        return {'files': {}, 'completed': [], 'failed': []}
+                return self._default_state()
+        return self._default_state()
+    
+    def _default_state(self) -> Dict:
+        """Create default state structure."""
+        return {
+            'files': {}, 
+            'completed': [], 
+            'failed': [],
+            'states': {},  # Track state/territory level information
+            'discovered_urls': {}  # Track all discovered URLs per state
+        }
     
     def save(self):
         """Save state to file."""
@@ -150,22 +252,27 @@ class DownloadState:
         except Exception as e:
             print(f"Warning: Could not save state file: {e}")
     
-    def mark_completed(self, url: str, output_path: str):
+    def mark_completed(self, url: str, output_path: str, state_fips: str = None, file_size: int = None):
         """Mark a file as successfully downloaded."""
         file_key = str(output_path)
         self.data['files'][file_key] = {
             'url': url,
             'status': 'completed',
             'timestamp': time.time(),
-            'path': str(output_path)
+            'path': str(output_path),
+            'size': file_size
         }
+        if state_fips:
+            self.data['files'][file_key]['state'] = state_fips
+            self._update_state_stats(state_fips, 'completed')
+        
         if url not in self.data['completed']:
             self.data['completed'].append(url)
         if url in self.data['failed']:
             self.data['failed'].remove(url)
         self.save()
     
-    def mark_failed(self, url: str, output_path: str, error: str):
+    def mark_failed(self, url: str, output_path: str, error: str, state_fips: str = None):
         """Mark a file as failed."""
         file_key = str(output_path)
         self.data['files'][file_key] = {
@@ -175,9 +282,62 @@ class DownloadState:
             'error': error,
             'path': str(output_path)
         }
+        if state_fips:
+            self.data['files'][file_key]['state'] = state_fips
+            self._update_state_stats(state_fips, 'failed')
+        
         if url not in self.data['failed']:
             self.data['failed'].append(url)
         self.save()
+    
+    def mark_partial(self, url: str, output_path: str, bytes_downloaded: int, state_fips: str = None):
+        """Mark a file as partially downloaded."""
+        file_key = str(output_path)
+        self.data['files'][file_key] = {
+            'url': url,
+            'status': 'partial',
+            'timestamp': time.time(),
+            'path': str(output_path),
+            'bytes_downloaded': bytes_downloaded
+        }
+        if state_fips:
+            self.data['files'][file_key]['state'] = state_fips
+            # Ensure state exists in tracking
+            if 'states' not in self.data:
+                self.data['states'] = {}
+            if state_fips not in self.data['states']:
+                self.data['states'][state_fips] = {
+                    'name': STATES.get(state_fips, f"State {state_fips}"),
+                    'completed': 0,
+                    'failed': 0,
+                    'urls': []
+                }
+        self.save()
+    
+    def get_partial_size(self, output_path: str) -> int:
+        """Get the number of bytes already downloaded for a partial file."""
+        file_key = str(output_path)
+        if file_key in self.data['files'] and self.data['files'][file_key].get('status') == 'partial':
+            return self.data['files'][file_key].get('bytes_downloaded', 0)
+        return 0
+    
+    def _update_state_stats(self, state_fips: str, status: str):
+        """Update statistics for a state/territory."""
+        if 'states' not in self.data:
+            self.data['states'] = {}
+        
+        if state_fips not in self.data['states']:
+            self.data['states'][state_fips] = {
+                'name': STATES.get(state_fips, f"State {state_fips}"),
+                'completed': 0,
+                'failed': 0,
+                'urls': []
+            }
+        
+        if status == 'completed':
+            self.data['states'][state_fips]['completed'] += 1
+        elif status == 'failed':
+            self.data['states'][state_fips]['failed'] += 1
     
     def is_completed(self, output_path: str) -> bool:
         """Check if a file is marked as completed."""
@@ -191,12 +351,144 @@ class DownloadState:
             'failed': len(self.data['failed']),
             'total': len(self.data['files'])
         }
+    
+    def get_state_summary(self, state_fips: str = None) -> Dict:
+        """
+        Get detailed summary for a specific state/territory or all states.
+        
+        Args:
+            state_fips: State FIPS code, or None for all states
+            
+        Returns:
+            Dictionary with state-level download statistics and URL lists
+        """
+        if 'states' not in self.data:
+            self.data['states'] = {}
+        
+        if state_fips:
+            return self.data['states'].get(state_fips, {
+                'name': STATES.get(state_fips, f"State {state_fips}"),
+                'completed': 0,
+                'failed': 0,
+                'urls': []
+            })
+        else:
+            return self.data['states']
+    
+    def list_states_requested(self) -> List[str]:
+        """
+        Get a list of all states/territories that have been requested for download.
+        
+        Returns:
+            List of state FIPS codes
+        """
+        if 'states' not in self.data:
+            self.data['states'] = {}
+        return list(self.data['states'].keys())
+    
+    def get_urls_for_state(self, state_fips: str) -> Dict[str, List[str]]:
+        """
+        Get categorized URL lists for a specific state/territory.
+        
+        Args:
+            state_fips: State FIPS code
+            
+        Returns:
+            Dictionary with 'completed', 'failed', and 'pending' URL lists
+        """
+        completed_urls = []
+        failed_urls = []
+        
+        for file_key, file_data in self.data['files'].items():
+            if file_data.get('state') == state_fips:
+                url = file_data.get('url', '')
+                if file_data.get('status') == 'completed':
+                    completed_urls.append(url)
+                elif file_data.get('status') == 'failed':
+                    failed_urls.append(url)
+        
+        return {
+            'completed': completed_urls,
+            'failed': failed_urls
+        }
+    
+    def set_discovered_urls(self, state_fips: str, urls: Set[str]):
+        """
+        Store the list of all discovered URLs for a state/territory.
+        
+        Args:
+            state_fips: State FIPS code
+            urls: Set of discovered URLs
+        """
+        if 'discovered_urls' not in self.data:
+            self.data['discovered_urls'] = {}
+        
+        self.data['discovered_urls'][state_fips] = list(urls)
+        
+        # Ensure state exists in tracking
+        if 'states' not in self.data:
+            self.data['states'] = {}
+        if state_fips not in self.data['states']:
+            self.data['states'][state_fips] = {
+                'name': STATES.get(state_fips, f"State {state_fips}"),
+                'completed': 0,
+                'failed': 0,
+                'urls': []
+            }
+        
+        self.save()
+    
+    def get_pending_urls(self, state_fips: str) -> List[str]:
+        """
+        Get list of URLs that still need to be downloaded for a state.
+        
+        Args:
+            state_fips: State FIPS code
+            
+        Returns:
+            List of URLs that haven't been completed yet
+        """
+        if 'discovered_urls' not in self.data or state_fips not in self.data['discovered_urls']:
+            return []
+        
+        all_discovered = set(self.data['discovered_urls'][state_fips])
+        completed = set(self.data.get('completed', []))
+        
+        # URLs that are discovered but not completed
+        pending = all_discovered - completed
+        
+        return list(pending)
+    
+    def get_download_progress(self, state_fips: str) -> Dict:
+        """
+        Get detailed download progress for a state including discovered files.
+        
+        Args:
+            state_fips: State FIPS code
+            
+        Returns:
+            Dictionary with counts of discovered, completed, failed, and pending files
+        """
+        discovered_count = 0
+        if 'discovered_urls' in self.data and state_fips in self.data['discovered_urls']:
+            discovered_count = len(self.data['discovered_urls'][state_fips])
+        
+        urls = self.get_urls_for_state(state_fips)
+        pending = self.get_pending_urls(state_fips)
+        
+        return {
+            'discovered': discovered_count,
+            'completed': len(urls['completed']),
+            'failed': len(urls['failed']),
+            'pending': len(pending),
+            'pending_urls': pending[:10]  # First 10 pending URLs
+        }
 
 
 def download_file(url: str, output_path: Path, retries: int = 8, timeout: int = 60, 
-                 state: DownloadState = None) -> tuple:
+                 state: DownloadState = None, state_fips: str = None) -> tuple:
     """
-    Download a file with enhanced retry logic for 520/523 errors.
+    Download a file with enhanced retry logic and partial download resume support.
     Returns (success: bool, url: str, message: str)
     
     Args:
@@ -205,6 +497,7 @@ def download_file(url: str, output_path: Path, retries: int = 8, timeout: int = 
         retries: Number of retry attempts (default: 8)
         timeout: Request timeout in seconds (default: 60)
         state: DownloadState object for tracking (optional)
+        state_fips: State FIPS code for tracking (optional)
     """
     base_delay = 2  # seconds - increased from 1
     max_delay = 60  # seconds - increased from 30
@@ -213,37 +506,105 @@ def download_file(url: str, output_path: Path, retries: int = 8, timeout: int = 
     if output_path.exists():
         file_size = output_path.stat().st_size
         if file_size > 0:
+            # Check if this is marked as completed in state
+            if state and state.is_completed(str(output_path)):
+                return (True, url, f"Already exists: {output_path.name} ({file_size:,} bytes)")
+            # Otherwise mark it as completed now
             if state:
-                state.mark_completed(url, str(output_path))
+                state.mark_completed(url, str(output_path), state_fips, file_size)
             return (True, url, f"Already exists: {output_path.name} ({file_size:,} bytes)")
+
+    # Check for partial download
+    temp_path = output_path.with_suffix('.tmp')
+    resume_pos = 0
+    if temp_path.exists():
+        resume_pos = temp_path.stat().st_size
+        if resume_pos > 0 and state:
+            # We have a partial download
+            partial_size = state.get_partial_size(str(output_path))
+            if partial_size > 0 and partial_size == resume_pos:
+                # Valid partial download recorded in state
+                pass
+            else:
+                # Record this as a partial download
+                state.mark_partial(url, str(output_path), resume_pos, state_fips)
 
     for attempt in range(retries):
         try:
             output_path.parent.mkdir(parents=True, exist_ok=True)
             
-            # Add timeout to urllib request
-            req = urllib.request.Request(url, headers={'User-Agent': USER_AGENT})
+            # Prepare request with optional Range header for resume
+            headers = {'User-Agent': USER_AGENT}
+            if resume_pos > 0:
+                headers['Range'] = f'bytes={resume_pos}-'
             
-            with urllib.request.urlopen(req, timeout=timeout) as response:
-                # Download to temporary file first
-                temp_path = output_path.with_suffix('.tmp')
-                with open(temp_path, 'wb') as f:
-                    f.write(response.read())
+            req = urllib.request.Request(url, headers=headers)
+            
+            try:
+                with urllib.request.urlopen(req, timeout=timeout) as response:
+                    # Check if server supports range requests
+                    if resume_pos > 0:
+                        if response.status == 206:
+                            # Partial content - resume supported
+                            mode = 'ab'
+                        elif response.status == 200:
+                            # Server doesn't support resume, start over
+                            print(f"    Server doesn't support resume, restarting download...")
+                            resume_pos = 0
+                            mode = 'wb'
+                            # Delete temp file to start fresh
+                            if temp_path.exists():
+                                temp_path.unlink()
+                        else:
+                            mode = 'wb'
+                    else:
+                        mode = 'wb'
+                    
+                    # Download file (or remainder of file)
+                    with open(temp_path, mode) as f:
+                        chunk_size = 8192
+                        total_downloaded = resume_pos
+                        last_state_update = time.time()
+                        while True:
+                            chunk = response.read(chunk_size)
+                            if not chunk:
+                                break
+                            f.write(chunk)
+                            total_downloaded += len(chunk)
+                            
+                            # Periodically update state for very large files (every 5 seconds)
+                            if state and time.time() - last_state_update > 5:
+                                state.mark_partial(url, str(output_path), total_downloaded, state_fips)
+                                last_state_update = time.time()
+                    
+                    # Verify file size
+                    file_size = temp_path.stat().st_size
+                    if file_size == 0:
+                        temp_path.unlink()
+                        raise ValueError("Downloaded file is empty")
+                    
+                    # Move to final location
+                    temp_path.rename(output_path)
                 
-                # Verify file size
-                file_size = temp_path.stat().st_size
-                if file_size == 0:
-                    temp_path.unlink()
-                    raise ValueError("Downloaded file is empty")
+                # Mark as completed in state
+                if state:
+                    state.mark_completed(url, str(output_path), state_fips, file_size)
                 
-                # Move to final location
-                temp_path.rename(output_path)
-            
-            # Mark as completed in state
-            if state:
-                state.mark_completed(url, str(output_path))
-            
-            return (True, url, f"Downloaded: {output_path.name} ({file_size:,} bytes)")
+                resume_msg = f" (resumed from {resume_pos:,} bytes)" if resume_pos > 0 else ""
+                return (True, url, f"Downloaded: {output_path.name} ({file_size:,} bytes){resume_msg}")
+                
+            except urllib.error.HTTPError as e:
+                if e.code == 416:
+                    # Range not satisfiable - file might be complete already
+                    if temp_path.exists():
+                        file_size = temp_path.stat().st_size
+                        temp_path.rename(output_path)
+                        if state:
+                            state.mark_completed(url, str(output_path), state_fips, file_size)
+                        return (True, url, f"Downloaded: {output_path.name} ({file_size:,} bytes) [completed]")
+                    raise
+                else:
+                    raise
             
         except urllib.error.HTTPError as e:
             if e.code == 404:
@@ -261,7 +622,7 @@ def download_file(url: str, output_path: Path, retries: int = 8, timeout: int = 
                 else:
                     error_msg = f"HTTP Error {e.code} (server error): {url}"
                     if state:
-                        state.mark_failed(url, str(output_path), error_msg)
+                        state.mark_failed(url, str(output_path), error_msg, state_fips)
                     return (False, url, error_msg)
             elif e.code in [502, 503]:
                 # Server temporarily unavailable - retry
@@ -273,7 +634,7 @@ def download_file(url: str, output_path: Path, retries: int = 8, timeout: int = 
                 else:
                     error_msg = f"HTTP Error {e.code}: {url}"
                     if state:
-                        state.mark_failed(url, str(output_path), error_msg)
+                        state.mark_failed(url, str(output_path), error_msg, state_fips)
                     return (False, url, error_msg)
             else:
                 # Other HTTP errors
@@ -285,13 +646,14 @@ def download_file(url: str, output_path: Path, retries: int = 8, timeout: int = 
                 else:
                     error_msg = f"HTTP Error {e.code}: {url}"
                     if state:
-                        state.mark_failed(url, str(output_path), error_msg)
+                        state.mark_failed(url, str(output_path), error_msg, state_fips)
                     return (False, url, error_msg)
         except Exception as e:
-            # Clean up temp file if it exists
-            temp_path = output_path.with_suffix('.tmp')
+            # Save partial state but keep temp file for resume
             if temp_path.exists():
-                temp_path.unlink()
+                partial_size = temp_path.stat().st_size
+                if partial_size > 0 and state:
+                    state.mark_partial(url, str(output_path), partial_size, state_fips)
             
             if attempt < retries - 1:
                 delay = min(base_delay * (2 ** attempt), max_delay)
@@ -301,17 +663,18 @@ def download_file(url: str, output_path: Path, retries: int = 8, timeout: int = 
             else:
                 error_msg = f"Error: {str(e)}"
                 if state:
-                    state.mark_failed(url, str(output_path), error_msg)
+                    state.mark_failed(url, str(output_path), error_msg, state_fips)
                 return (False, url, error_msg)
     
     error_msg = "Failed after all retry attempts"
     if state:
-        state.mark_failed(url, str(output_path), error_msg)
+        state.mark_failed(url, str(output_path), error_msg, state_fips)
     return (False, url, error_msg)
 
 def download_county_data(state_fips: str, year: int, output_dir: Path, 
                          dataset_types: List[str], parallel: int = 4, 
-                         timeout: int = 60, state: DownloadState = None):
+                         timeout: int = 60, state: DownloadState = None, 
+                         discover_files: bool = False):
     """
     Download county-level data for a state.
     
@@ -323,8 +686,8 @@ def download_county_data(state_fips: str, year: int, output_dir: Path,
         parallel: Number of parallel downloads
         timeout: Download timeout in seconds
         state: DownloadState object for tracking
+        discover_files: If True, scrape directories to discover all available files
     """
-    counties = get_county_list(state_fips, year)
     state_name = STATES.get(state_fips, f"State {state_fips}")
     
     print(f"\n{'='*70}")
@@ -332,27 +695,58 @@ def download_county_data(state_fips: str, year: int, output_dir: Path,
     print(f"{'='*70}")
     
     download_tasks = []
-    for dataset_type in dataset_types:
-        if dataset_type in COUNTY_LEVEL_TYPES:
-            # County-level datasets
-            for county_fips in counties:
-                url = construct_url(year, state_fips, county_fips, dataset_type)
-                output_path = output_dir / state_fips / f"tl_{year}_{state_fips}{county_fips}_{dataset_type.lower()}.zip"
-                
-                # Skip if already completed
-                if state and state.is_completed(str(output_path)):
-                    continue
-                    
-                download_tasks.append((url, output_path))
-        else:
-            # State-level or national datasets
-            url = construct_url(year, state_fips, None, dataset_type)
+    
+    # If discover_files is True, scrape directories instead of using hardcoded patterns
+    if discover_files:
+        print(f"\nDiscovering available files from Census Bureau...")
+        discovered = discover_state_files(state_fips, year, dataset_types, timeout)
+        
+        # Store all discovered URLs in state
+        all_urls = set()
+        for dataset_type, urls in discovered.items():
+            all_urls.update(urls)
+        
+        if state:
+            state.set_discovered_urls(state_fips, all_urls)
+        
+        print(f"Total files discovered: {len(all_urls)}")
+        
+        # Build download tasks from discovered URLs
+        for url in all_urls:
             filename = url.split('/')[-1]
             output_path = output_dir / state_fips / filename
             
             # Skip if already completed
             if state and state.is_completed(str(output_path)):
                 continue
+            
+            download_tasks.append((url, output_path))
+    
+    else:
+        # Original behavior: use hardcoded county list
+        counties = get_county_list(state_fips, year)
+        
+        for dataset_type in dataset_types:
+            if dataset_type in COUNTY_LEVEL_TYPES:
+                # County-level datasets
+                for county_fips in counties:
+                    url = construct_url(year, state_fips, county_fips, dataset_type)
+                    output_path = output_dir / state_fips / f"tl_{year}_{state_fips}{county_fips}_{dataset_type.lower()}.zip"
+                    
+                    # Skip if already completed
+                    if state and state.is_completed(str(output_path)):
+                        continue
+                        
+                    download_tasks.append((url, output_path))
+            else:
+                # State-level or national datasets
+                url = construct_url(year, state_fips, None, dataset_type)
+                filename = url.split('/')[-1]
+                output_path = output_dir / state_fips / filename
+                
+                # Skip if already completed
+                if state and state.is_completed(str(output_path)):
+                    continue
                 
             download_tasks.append((url, output_path))
     
@@ -376,7 +770,7 @@ def download_county_data(state_fips: str, year: int, output_dir: Path,
         return successful, failed, not_found
     
     with ThreadPoolExecutor(max_workers=parallel) as executor:
-        futures = {executor.submit(download_file, url, path, 8, timeout, state): (url, path) 
+        futures = {executor.submit(download_file, url, path, 8, timeout, state, state_fips): (url, path)
                    for url, path in download_tasks}
         
         for future in as_completed(futures):
@@ -400,6 +794,43 @@ def download_county_data(state_fips: str, year: int, output_dir: Path,
     
     return successful, failed, not_found
 
+def create_state_tracker(state_file: Path, use_db: bool = None) -> Union['DownloadState', 'DownloadStateDB']:
+    """
+    Create appropriate state tracker (DuckDB or JSON).
+    
+    Args:
+        state_file: Path to state file (with .json or .duckdb extension)
+        use_db: Force DB usage (True), JSON usage (False), or auto-detect (None)
+        
+    Returns:
+        DownloadState or DownloadStateDB instance
+    """
+    # Auto-detect based on file extension if not specified
+    if use_db is None:
+        if state_file.suffix == '.duckdb':
+            use_db = True
+        elif state_file.suffix == '.json':
+            use_db = False
+        else:
+            # Default to DB if available, otherwise JSON
+            use_db = DUCKDB_AVAILABLE
+    
+    # Create appropriate tracker
+    if use_db:
+        if not DUCKDB_AVAILABLE:
+            print("Warning: DuckDB requested but not available. Falling back to JSON.")
+            print("Install DuckDB with: pip install duckdb>=0.9.0")
+            return DownloadState(state_file.with_suffix('.json'))
+        
+        db_path = state_file.with_suffix('.duckdb')
+        print(f"Using DuckDB state tracker: {db_path}")
+        return DownloadStateDB(db_path)
+    else:
+        json_path = state_file.with_suffix('.json')
+        print(f"Using JSON state tracker: {json_path}")
+        return DownloadState(json_path)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description='Download TIGER/Line Shapefiles from US Census Bureau',
@@ -418,12 +849,18 @@ def main():
                         help='List available dataset types and exit')
     parser.add_argument('--list-states', action='store_true',
                         help='List all state FIPS codes and exit')
+    parser.add_argument('--show-status', action='store_true',
+                        help='Show download status for all states/territories and exit')
+    parser.add_argument('--discover', action='store_true',
+                        help='Discover available files by scraping Census Bureau directories')
+    parser.add_argument('--use-db', action='store_true',
+                        help='Use DuckDB for state tracking (better for large downloads)')
     parser.add_argument('--parallel', type=int, default=4,
                         help='Number of parallel downloads (default: 4)')
     parser.add_argument('--resume', action='store_true',
                         help='Resume from previous download session')
-    parser.add_argument('--state-file', type=str, default='.tiger_download_state.json',
-                        help='Path to state file (default: .tiger_download_state.json)')
+    parser.add_argument('--state-file', type=str, default='.tiger_download_state',
+                        help='Path to state file (default: .tiger_download_state, extension added automatically)')
     parser.add_argument('--timeout', type=int, default=60,
                         help='Download timeout in seconds (default: 60)')
     
@@ -442,6 +879,104 @@ def main():
         print("=" * 70)
         for fips, name in sorted(STATES.items()):
             print(f"  {fips} - {name}")
+        return 0
+    
+    # Determine state file path (check for both .json and .duckdb)
+    output_dir = Path(args.output)
+    state_file_base = output_dir / args.state_file
+    
+    # Auto-detect existing state file
+    json_file = state_file_base.with_suffix('.json')
+    db_file = state_file_base.with_suffix('.duckdb')
+    
+    # Determine which file exists
+    existing_file = None
+    if db_file.exists():
+        existing_file = db_file
+    elif json_file.exists():
+        existing_file = json_file
+    
+    if args.show_status:
+        if not existing_file:
+            print(f"\nNo download state file found")
+            print(f"Checked for: {json_file} or {db_file}")
+            print("Start a download to create a state file.")
+            return 1
+        
+        # Load existing state
+        if existing_file.suffix == '.duckdb':
+            download_state = DownloadStateDB(existing_file)
+        else:
+            download_state = DownloadState(existing_file)
+        
+        states_list = download_state.list_states_requested()
+        
+        if not states_list:
+            print("\nNo states/territories have been requested for download yet.")
+            return 0
+        
+        print(f"\n{'='*70}")
+        print(f"Download Status Summary")
+        print(f"{'='*70}")
+        print(f"State File: {existing_file}")
+        backend = "DuckDB" if existing_file.suffix == '.duckdb' else "JSON"
+        print(f"Backend:    {backend}")
+        print(f"{'='*70}\n")
+        
+        for state_fips in sorted(states_list):
+            state_summary = download_state.get_state_summary(state_fips)
+            urls = download_state.get_urls_for_state(state_fips)
+            progress = download_state.get_download_progress(state_fips)
+            
+            state_name = state_summary.get('name', f"State {state_fips}")
+            completed = state_summary.get('completed', 0)
+            failed = state_summary.get('failed', 0)
+            total = completed + failed
+            
+            print(f"State: {state_name} (FIPS: {state_fips})")
+            
+            # Show discovered count if available
+            if progress['discovered'] > 0:
+                print(f"  Discovered: {progress['discovered']}")
+                print(f"  Completed:  {progress['completed']}")
+                print(f"  Failed:     {progress['failed']}")
+                print(f"  Pending:    {progress['pending']}")
+                
+                # Show progress percentage
+                if progress['discovered'] > 0:
+                    pct = (progress['completed'] / progress['discovered']) * 100
+                    print(f"  Progress:   {pct:.1f}%")
+            else:
+                print(f"  Completed: {completed}")
+                print(f"  Failed:    {failed}")
+                print(f"  Total:     {total}")
+            
+            if urls['completed']:
+                print(f"  Sample Completed URLs ({min(3, len(urls['completed']))}):")
+                for url in urls['completed'][:3]:
+                    print(f"    ✓ {url}")
+            
+            if urls['failed']:
+                print(f"  Failed URLs ({len(urls['failed'])}):")
+                for url in urls['failed'][:5]:
+                    print(f"    ✗ {url}")
+            
+            # Show sample pending URLs if available
+            if progress['pending'] > 0 and progress['pending_urls']:
+                print(f"  Sample Pending URLs ({min(3, len(progress['pending_urls']))}):")
+                for url in progress['pending_urls'][:3]:
+                    print(f"    ⊙ {url}")
+            
+            print()
+        
+        overall_summary = download_state.get_summary()
+        print(f"{'='*70}")
+        print(f"Overall Summary:")
+        print(f"  Total Files Tracked: {overall_summary['total']}")
+        print(f"  Completed:           {overall_summary['completed']}")
+        print(f"  Failed:              {overall_summary['failed']}")
+        print(f"{'='*70}\n")
+        
         return 0
     
     # Determine which states to download
@@ -469,12 +1004,11 @@ def main():
         # Default to the most commonly used types for geocoding
         type_list = COUNTY_LEVEL_TYPES
     
-    output_dir = Path(args.output)
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    # Initialize state tracking
-    state_file = output_dir / args.state_file
-    download_state = DownloadState(state_file)
+    # Initialize state tracking - use appropriate backend
+    use_db = args.use_db
+    download_state = create_state_tracker(state_file_base, use_db=use_db)
     
     if args.resume:
         summary = download_state.get_summary()
@@ -494,7 +1028,10 @@ def main():
     print(f"Dataset Types: {', '.join(type_list)}")
     print(f"Parallel DLs:  {args.parallel}")
     print(f"Timeout:       {args.timeout}s")
-    print(f"State File:    {state_file}")
+    backend = "DuckDB" if isinstance(download_state, DownloadStateDB) else "JSON"
+    state_file_actual = state_file_base.with_suffix('.duckdb' if isinstance(download_state, DownloadStateDB) else '.json')
+    print(f"State Backend: {backend}")
+    print(f"State File:    {state_file_actual}")
     print(f"{'='*70}\n")
     
     # Download data for each state
@@ -507,7 +1044,7 @@ def main():
     for state_fips in state_list:
         successful, failed, not_found = download_county_data(
             state_fips, args.year, output_dir, type_list, args.parallel, 
-            args.timeout, download_state
+            args.timeout, download_state, discover_files=args.discover
         )
         total_successful += successful
         total_failed += failed
