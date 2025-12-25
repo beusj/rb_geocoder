@@ -59,10 +59,19 @@ if [ -n "$TYPES" ]; then
             FEATNAMES)
                 DBFS="$DBFS featnames"
                 ;;
+            *)
+                echo "Warning: Unknown type '$type' ignored. Valid types are: EDGES, ADDR, FEATNAMES" >&2
+                ;;
         esac
     done
     # Trim leading/trailing spaces
     DBFS=$(echo "$DBFS" | xargs)
+    
+    # Warn if no valid types were specified
+    if [ -z "$SHPS" ] && [ -z "$DBFS" ]; then
+        echo "Error: No valid types specified. Valid types are: EDGES, ADDR, FEATNAMES" >&2
+        exit 1
+    fi
 fi
 
 mkdir -p $TMP || exit 1
