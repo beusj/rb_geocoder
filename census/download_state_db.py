@@ -352,7 +352,7 @@ class DownloadStateDB:
         results = self.conn.execute("""
             SELECT d.url
             FROM discovered_urls d
-            LEFT JOIN url_lists u ON d.url = u.url AND u.list_type = 'completed'
+            LEFT JOIN url_lists u ON d.url = u.url AND u.list_type IN ('completed', 'failed')
             WHERE d.state_fips = ? AND u.url IS NULL
         """, [state_fips]).fetchall()
         

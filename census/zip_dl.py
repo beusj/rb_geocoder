@@ -18,12 +18,25 @@ Options:
     --types TYPE        Download specific types (comma-separated)
     --list-types        List available dataset types
     --list-states       List all state FIPS codes
+    --show-status       Show download status for all states/territories
+    --discover          Discover available files by scraping Census Bureau directories
+    --discover-only     Only discover and populate URLs in state database, do not download
     --parallel N        Number of parallel downloads (default: 4)
     --resume            Resume from previous download session
     --state-file FILE   Path to state file (default: .tiger_download_state.json or .duckdb)
     --use-db            Use DuckDB for state tracking (default: enabled)
     --no-use-db         Use JSON for state tracking instead of DuckDB
     --timeout N         Download timeout in seconds (default: 60)
+
+Examples:
+    # Discover and populate URLs without downloading:
+    python zip_dl.py --discover-only --states 13 --types EDGES,ADDR
+    
+    # Check discovered URLs:
+    python zip_dl.py --show-status
+    
+    # Download discovered files:
+    python zip_dl.py --states 13 --discover --resume
 """
 
 import os
@@ -447,16 +460,17 @@ class DownloadState:
             state_fips: State FIPS code
             
         Returns:
-            List of URLs that haven't been completed yet
+            List of URLs that haven't been completed or failed yet
         """
         if 'discovered_urls' not in self.data or state_fips not in self.data['discovered_urls']:
             return []
         
         all_discovered = set(self.data['discovered_urls'][state_fips])
         completed = set(self.data.get('completed', []))
+        failed = set(self.data.get('failed', []))
         
-        # URLs that are discovered but not completed
-        pending = all_discovered - completed
+        # URLs that are discovered but not completed or failed
+        pending = all_discovered - completed - failed
         
         return list(pending)
     
@@ -795,6 +809,44 @@ def download_county_data(state_fips: str, year: int, output_dir: Path,
     
     return successful, failed, not_found
 
+def discover_and_populate_state(state_fips: str, year: int, dataset_types: List[str], 
+                                 timeout: int, state: Union['DownloadState', 'DownloadStateDB']) -> int:
+    """
+    Discover available files for a state and populate the state database without downloading.
+    
+    Args:
+        state_fips: State FIPS code
+        year: Year to discover
+        dataset_types: List of dataset types to discover
+        timeout: Request timeout in seconds
+        state: DownloadState or DownloadStateDB object for tracking
+        
+    Returns:
+        Number of URLs discovered
+    """
+    state_name = STATES.get(state_fips, f"State {state_fips}")
+    
+    print(f"\n{'='*70}")
+    print(f"Discovering files for {state_name} (FIPS: {state_fips})")
+    print(f"{'='*70}")
+    
+    print(f"\nDiscovering available files from Census Bureau...")
+    discovered = discover_state_files(state_fips, year, dataset_types, timeout)
+    
+    # Store all discovered URLs in state
+    all_urls = set()
+    for dataset_type, urls in discovered.items():
+        all_urls.update(urls)
+    
+    if state:
+        state.set_discovered_urls(state_fips, all_urls)
+    
+    print(f"Total files discovered: {len(all_urls)}")
+    print(f"URLs populated in state database")
+    
+    return len(all_urls)
+
+
 def create_state_tracker(state_file: Path, use_db: bool = None) -> Union['DownloadState', 'DownloadStateDB']:
     """
     Create appropriate state tracker (DuckDB or JSON).
@@ -854,6 +906,8 @@ def main():
                         help='Show download status for all states/territories and exit')
     parser.add_argument('--discover', action='store_true',
                         help='Discover available files by scraping Census Bureau directories')
+    parser.add_argument('--discover-only', action='store_true',
+                        help='Only discover and populate URLs in state database, do not download files')
     parser.add_argument('--use-db', action='store_true', default=True,
                         help='Use DuckDB for state tracking (default: enabled)')
     parser.add_argument('--no-use-db', dest='use_db', action='store_false',
@@ -982,6 +1036,17 @@ def main():
         
         return 0
     
+    # Validate discover-only mode requirements
+    if args.discover_only and not args.states:
+        print("Error: --discover-only requires --states to be specified")
+        print("Use --list-states to see valid state FIPS codes")
+        return 1
+    
+    if args.discover_only and not args.types:
+        print("Error: --discover-only requires --types to be specified")
+        print("Use --list-types to see valid dataset types")
+        return 1
+    
     # Determine which states to download
     if args.states:
         state_list = [s.strip().zfill(2) for s in args.states.split(',')]
@@ -1031,11 +1096,41 @@ def main():
     print(f"Dataset Types: {', '.join(type_list)}")
     print(f"Parallel DLs:  {args.parallel}")
     print(f"Timeout:       {args.timeout}s")
-    backend = "DuckDB" if isinstance(download_state, DownloadStateDB) else "JSON"
-    state_file_actual = state_file_base.with_suffix('.duckdb' if isinstance(download_state, DownloadStateDB) else '.json')
+    backend = "DuckDB" if DUCKDB_AVAILABLE and isinstance(download_state, DownloadStateDB) else "JSON"
+    state_file_actual = state_file_base.with_suffix('.duckdb' if DUCKDB_AVAILABLE and isinstance(download_state, DownloadStateDB) else '.json')
     print(f"State Backend: {backend}")
     print(f"State File:    {state_file_actual}")
     print(f"{'='*70}\n")
+    
+    # If discover-only mode, populate URLs without downloading
+    if args.discover_only:
+        print(f"MODE: Discover-only (populating state database without downloading)\n")
+        
+        total_discovered = 0
+        start_time = time.time()
+        
+        for state_fips in state_list:
+            count = discover_and_populate_state(
+                state_fips, args.year, type_list, args.timeout, download_state
+            )
+            total_discovered += count
+        
+        elapsed = time.time() - start_time
+        
+        # Final summary for discover-only
+        print(f"\n{'='*70}")
+        print(f"DISCOVERY SUMMARY")
+        print(f"{'='*70}")
+        print(f"Total URLs Discovered: {total_discovered}")
+        print(f"States Processed:      {len(state_list)}")
+        print(f"Elapsed Time:          {elapsed:.1f} seconds")
+        print(f"State File:            {state_file_actual}")
+        print(f"{'='*70}\n")
+        print(f"URLs have been populated in the state database.")
+        print(f"Use --show-status to view discovered URLs.")
+        print(f"Use --resume to download the discovered files.")
+        
+        return 0
     
     # Download data for each state
     total_successful = 0
