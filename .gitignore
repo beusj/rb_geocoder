@@ -5,6 +5,9 @@
 *.tar.gz
 *.db
 
+# other tracking/data
+*.json
+
 # Python
 __pycache__/
 *.py[cod]

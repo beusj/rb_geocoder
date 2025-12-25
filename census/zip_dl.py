@@ -806,30 +806,29 @@ def create_state_tracker(state_file: Path, use_db: bool = None) -> Union['Downlo
     Returns:
         DownloadState or DownloadStateDB instance
     """
-    # Auto-detect based on file extension if not specified
-    if use_db is None:
-        if state_file.suffix == '.duckdb':
-            use_db = True
-        elif state_file.suffix == '.json':
-            use_db = False
-        else:
-            # Default to DB if available, otherwise JSON
-            use_db = DUCKDB_AVAILABLE
-    
-    # Create appropriate tracker
-    if use_db:
-        if not DUCKDB_AVAILABLE:
-            print("Warning: DuckDB requested but not available. Falling back to JSON.")
-            print("Install DuckDB with: pip install duckdb>=0.9.0")
-            return DownloadState(state_file.with_suffix('.json'))
-        
-        db_path = state_file.with_suffix('.duckdb')
-        print(f"Using DuckDB state tracker: {db_path}")
-        return DownloadStateDB(db_path)
-    else:
+    # If use_db is explicitly False, use JSON
+    if use_db is False:
         json_path = state_file.with_suffix('.json')
         print(f"Using JSON state tracker: {json_path}")
         return DownloadState(json_path)
+
+    # Otherwise, always try to use DuckDB
+    if not DUCKDB_AVAILABLE:
+        print("Warning: DuckDB not available. Falling back to JSON.")
+        print("Install DuckDB with: pip install duckdb>=0.9.0")
+        json_path = state_file.with_suffix('.json')
+        return DownloadState(json_path)
+
+    db_path = state_file.with_suffix('.duckdb')
+    # Ensure the DuckDB file exists (create if needed)
+    if not db_path.exists():
+        try:
+            import duckdb
+            duckdb.connect(str(db_path)).close()
+        except Exception as e:
+            print(f"Error creating DuckDB file: {e}")
+    print(f"Using DuckDB state tracker: {db_path}")
+    return DownloadStateDB(db_path)
 
 
 def main():
@@ -1031,8 +1030,13 @@ def main():
     print(f"Dataset Types: {', '.join(type_list)}")
     print(f"Parallel DLs:  {args.parallel}")
     print(f"Timeout:       {args.timeout}s")
-    backend = "DuckDB" if isinstance(download_state, DownloadStateDB) else "JSON"
-    state_file_actual = state_file_base.with_suffix('.duckdb' if isinstance(download_state, DownloadStateDB) else '.json')
+    # Fix: Only use isinstance if DownloadStateDB is a type
+    if DownloadStateDB is not None:
+        is_duckdb = isinstance(download_state, DownloadStateDB)
+    else:
+        is_duckdb = False
+    backend = "DuckDB" if is_duckdb else "JSON"
+    state_file_actual = state_file_base.with_suffix('.duckdb' if is_duckdb else '.json')
     print(f"State Backend: {backend}")
     print(f"State File:    {state_file_actual}")
     print(f"{'='*70}\n")
