@@ -222,6 +222,31 @@ The geometry conversion process:
 - **SQLite/Ruby format**: Compressed format with coordinates as 4-byte signed integers (multiplied by 1,000,000)
 - The export tool automatically handles this conversion for the `edge` table
 
+## Batch Geocoding
+
+For geocoding many addresses, you can use simple iteration:
+
+```python
+addresses = ["123 Main St, City ST", "456 Oak Ave, Town ST", ...]
+
+with Database("geocoder.duckdb") as db:
+    results = [db.geocode(addr) for addr in addresses]
+```
+
+For parallel processing with multiple threads:
+
+```python
+from concurrent.futures import ThreadPoolExecutor
+
+def geocode_one(addr):
+    # Each thread needs its own connection
+    with Database("geocoder.duckdb") as db:
+        return db.geocode(addr)
+
+with ThreadPoolExecutor(max_workers=4) as executor:
+    results = list(executor.map(geocode_one, addresses))
+```
+
 ## Testing
 
 ```bash
