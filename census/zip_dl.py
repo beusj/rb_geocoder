@@ -31,11 +31,13 @@ import urllib.request
 import urllib.error
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import List, Dict
+from typing import List, Dict, Set
 import time
 import random
 import json
 import hashlib
+import re
+from html.parser import HTMLParser
 
 # Constants
 USER_AGENT = 'TIGERLine-Downloader/1.0'
@@ -81,6 +83,88 @@ DATASET_TYPES = {
     'ELSD': 'Elementary School Districts',
     'SCSD': 'Secondary School Districts',
 }
+
+class DirectoryParser(HTMLParser):
+    """Parse HTML directory listings to extract file links."""
+    
+    def __init__(self):
+        super().__init__()
+        self.links = []
+        self.in_link = False
+        
+    def handle_starttag(self, tag, attrs):
+        if tag == 'a':
+            self.in_link = True
+            for attr, value in attrs:
+                if attr == 'href' and value.endswith('.zip'):
+                    self.links.append(value)
+    
+    def handle_endtag(self, tag):
+        if tag == 'a':
+            self.in_link = False
+
+
+def scrape_directory(url: str, timeout: int = 30) -> Set[str]:
+    """
+    Scrape a Census Bureau directory page to discover available files.
+    
+    Args:
+        url: Directory URL to scrape
+        timeout: Request timeout in seconds
+        
+    Returns:
+        Set of file URLs found in the directory
+    """
+    try:
+        req = urllib.request.Request(url, headers={'User-Agent': USER_AGENT})
+        with urllib.request.urlopen(req, timeout=timeout) as response:
+            html = response.read().decode('utf-8')
+            
+        parser = DirectoryParser()
+        parser.feed(html)
+        
+        # Convert relative URLs to absolute URLs
+        base_url = url if url.endswith('/') else url + '/'
+        absolute_urls = {base_url + link for link in parser.links if link.endswith('.zip')}
+        
+        return absolute_urls
+        
+    except Exception as e:
+        print(f"Warning: Could not scrape directory {url}: {e}")
+        return set()
+
+
+def discover_state_files(state_fips: str, year: int, dataset_types: List[str], timeout: int = 30) -> Dict[str, Set[str]]:
+    """
+    Discover all available files for a state by scraping Census Bureau directories.
+    
+    Args:
+        state_fips: State FIPS code
+        year: Year to download
+        dataset_types: List of dataset types to discover
+        timeout: Request timeout in seconds
+        
+    Returns:
+        Dictionary mapping dataset type to set of discovered URLs
+    """
+    discovered = {}
+    base_url = f"https://www2.census.gov/geo/tiger/TIGER{year}"
+    
+    for dataset_type in dataset_types:
+        print(f"  Discovering {dataset_type} files for state {state_fips}...")
+        directory_url = f"{base_url}/{dataset_type}/"
+        
+        all_urls = scrape_directory(directory_url, timeout)
+        
+        # Filter URLs for this specific state
+        state_pattern = re.compile(f"tl_{year}_{state_fips}\\d{{3}}_{dataset_type.lower()}\\.zip")
+        state_urls = {url for url in all_urls if state_pattern.search(url)}
+        
+        discovered[dataset_type] = state_urls
+        print(f"    Found {len(state_urls)} {dataset_type} files")
+    
+    return discovered
+
 
 def get_county_list(state_fips: str, year: int = 2024) -> List[str]:
     """
@@ -148,7 +232,8 @@ class DownloadState:
             'files': {}, 
             'completed': [], 
             'failed': [],
-            'states': {}  # Track state/territory level information
+            'states': {},  # Track state/territory level information
+            'discovered_urls': {}  # Track all discovered URLs per state
         }
     
     def save(self):
@@ -318,6 +403,78 @@ class DownloadState:
             'completed': completed_urls,
             'failed': failed_urls
         }
+    
+    def set_discovered_urls(self, state_fips: str, urls: Set[str]):
+        """
+        Store the list of all discovered URLs for a state/territory.
+        
+        Args:
+            state_fips: State FIPS code
+            urls: Set of discovered URLs
+        """
+        if 'discovered_urls' not in self.data:
+            self.data['discovered_urls'] = {}
+        
+        self.data['discovered_urls'][state_fips] = list(urls)
+        
+        # Ensure state exists in tracking
+        if 'states' not in self.data:
+            self.data['states'] = {}
+        if state_fips not in self.data['states']:
+            self.data['states'][state_fips] = {
+                'name': STATES.get(state_fips, f"State {state_fips}"),
+                'completed': 0,
+                'failed': 0,
+                'urls': []
+            }
+        
+        self.save()
+    
+    def get_pending_urls(self, state_fips: str) -> List[str]:
+        """
+        Get list of URLs that still need to be downloaded for a state.
+        
+        Args:
+            state_fips: State FIPS code
+            
+        Returns:
+            List of URLs that haven't been completed yet
+        """
+        if 'discovered_urls' not in self.data or state_fips not in self.data['discovered_urls']:
+            return []
+        
+        all_discovered = set(self.data['discovered_urls'][state_fips])
+        completed = set(self.data.get('completed', []))
+        
+        # URLs that are discovered but not completed
+        pending = all_discovered - completed
+        
+        return list(pending)
+    
+    def get_download_progress(self, state_fips: str) -> Dict:
+        """
+        Get detailed download progress for a state including discovered files.
+        
+        Args:
+            state_fips: State FIPS code
+            
+        Returns:
+            Dictionary with counts of discovered, completed, failed, and pending files
+        """
+        discovered_count = 0
+        if 'discovered_urls' in self.data and state_fips in self.data['discovered_urls']:
+            discovered_count = len(self.data['discovered_urls'][state_fips])
+        
+        urls = self.get_urls_for_state(state_fips)
+        pending = self.get_pending_urls(state_fips)
+        
+        return {
+            'discovered': discovered_count,
+            'completed': len(urls['completed']),
+            'failed': len(urls['failed']),
+            'pending': len(pending),
+            'pending_urls': pending[:10]  # First 10 pending URLs
+        }
 
 
 def download_file(url: str, output_path: Path, retries: int = 8, timeout: int = 60, 
@@ -384,8 +541,12 @@ def download_file(url: str, output_path: Path, retries: int = 8, timeout: int = 
                             mode = 'ab'
                         elif response.status == 200:
                             # Server doesn't support resume, start over
+                            print(f"    Server doesn't support resume, restarting download...")
                             resume_pos = 0
                             mode = 'wb'
+                            # Delete temp file to start fresh
+                            if temp_path.exists():
+                                temp_path.unlink()
                         else:
                             mode = 'wb'
                     else:
@@ -395,6 +556,7 @@ def download_file(url: str, output_path: Path, retries: int = 8, timeout: int = 
                     with open(temp_path, mode) as f:
                         chunk_size = 8192
                         total_downloaded = resume_pos
+                        last_state_update = time.time()
                         while True:
                             chunk = response.read(chunk_size)
                             if not chunk:
@@ -402,9 +564,10 @@ def download_file(url: str, output_path: Path, retries: int = 8, timeout: int = 
                             f.write(chunk)
                             total_downloaded += len(chunk)
                             
-                            # Periodically update state for very large files
-                            if state and total_downloaded % (chunk_size * 100) == 0:
+                            # Periodically update state for very large files (every 5 seconds)
+                            if state and time.time() - last_state_update > 5:
                                 state.mark_partial(url, str(output_path), total_downloaded, state_fips)
+                                last_state_update = time.time()
                     
                     # Verify file size
                     file_size = temp_path.stat().st_size
@@ -502,7 +665,8 @@ def download_file(url: str, output_path: Path, retries: int = 8, timeout: int = 
 
 def download_county_data(state_fips: str, year: int, output_dir: Path, 
                          dataset_types: List[str], parallel: int = 4, 
-                         timeout: int = 60, state: DownloadState = None):
+                         timeout: int = 60, state: DownloadState = None, 
+                         discover_files: bool = False):
     """
     Download county-level data for a state.
     
@@ -514,8 +678,8 @@ def download_county_data(state_fips: str, year: int, output_dir: Path,
         parallel: Number of parallel downloads
         timeout: Download timeout in seconds
         state: DownloadState object for tracking
+        discover_files: If True, scrape directories to discover all available files
     """
-    counties = get_county_list(state_fips, year)
     state_name = STATES.get(state_fips, f"State {state_fips}")
     
     print(f"\n{'='*70}")
@@ -523,27 +687,58 @@ def download_county_data(state_fips: str, year: int, output_dir: Path,
     print(f"{'='*70}")
     
     download_tasks = []
-    for dataset_type in dataset_types:
-        if dataset_type in COUNTY_LEVEL_TYPES:
-            # County-level datasets
-            for county_fips in counties:
-                url = construct_url(year, state_fips, county_fips, dataset_type)
-                output_path = output_dir / state_fips / f"tl_{year}_{state_fips}{county_fips}_{dataset_type.lower()}.zip"
-                
-                # Skip if already completed
-                if state and state.is_completed(str(output_path)):
-                    continue
-                    
-                download_tasks.append((url, output_path))
-        else:
-            # State-level or national datasets
-            url = construct_url(year, state_fips, None, dataset_type)
+    
+    # If discover_files is True, scrape directories instead of using hardcoded patterns
+    if discover_files:
+        print(f"\nDiscovering available files from Census Bureau...")
+        discovered = discover_state_files(state_fips, year, dataset_types, timeout)
+        
+        # Store all discovered URLs in state
+        all_urls = set()
+        for dataset_type, urls in discovered.items():
+            all_urls.update(urls)
+        
+        if state:
+            state.set_discovered_urls(state_fips, all_urls)
+        
+        print(f"Total files discovered: {len(all_urls)}")
+        
+        # Build download tasks from discovered URLs
+        for url in all_urls:
             filename = url.split('/')[-1]
             output_path = output_dir / state_fips / filename
             
             # Skip if already completed
             if state and state.is_completed(str(output_path)):
                 continue
+            
+            download_tasks.append((url, output_path))
+    
+    else:
+        # Original behavior: use hardcoded county list
+        counties = get_county_list(state_fips, year)
+        
+        for dataset_type in dataset_types:
+            if dataset_type in COUNTY_LEVEL_TYPES:
+                # County-level datasets
+                for county_fips in counties:
+                    url = construct_url(year, state_fips, county_fips, dataset_type)
+                    output_path = output_dir / state_fips / f"tl_{year}_{state_fips}{county_fips}_{dataset_type.lower()}.zip"
+                    
+                    # Skip if already completed
+                    if state and state.is_completed(str(output_path)):
+                        continue
+                        
+                    download_tasks.append((url, output_path))
+            else:
+                # State-level or national datasets
+                url = construct_url(year, state_fips, None, dataset_type)
+                filename = url.split('/')[-1]
+                output_path = output_dir / state_fips / filename
+                
+                # Skip if already completed
+                if state and state.is_completed(str(output_path)):
+                    continue
                 
             download_tasks.append((url, output_path))
     
@@ -611,6 +806,8 @@ def main():
                         help='List all state FIPS codes and exit')
     parser.add_argument('--show-status', action='store_true',
                         help='Show download status for all states/territories and exit')
+    parser.add_argument('--discover', action='store_true',
+                        help='Discover available files by scraping Census Bureau directories')
     parser.add_argument('--parallel', type=int, default=4,
                         help='Number of parallel downloads (default: 4)')
     parser.add_argument('--resume', action='store_true',
@@ -663,6 +860,7 @@ def main():
         for state_fips in sorted(states_list):
             state_summary = download_state.get_state_summary(state_fips)
             urls = download_state.get_urls_for_state(state_fips)
+            progress = download_state.get_download_progress(state_fips)
             
             state_name = state_summary.get('name', f"State {state_fips}")
             completed = state_summary.get('completed', 0)
@@ -670,9 +868,22 @@ def main():
             total = completed + failed
             
             print(f"State: {state_name} (FIPS: {state_fips})")
-            print(f"  Completed: {completed}")
-            print(f"  Failed:    {failed}")
-            print(f"  Total:     {total}")
+            
+            # Show discovered count if available
+            if progress['discovered'] > 0:
+                print(f"  Discovered: {progress['discovered']}")
+                print(f"  Completed:  {progress['completed']}")
+                print(f"  Failed:     {progress['failed']}")
+                print(f"  Pending:    {progress['pending']}")
+                
+                # Show progress percentage
+                if progress['discovered'] > 0:
+                    pct = (progress['completed'] / progress['discovered']) * 100
+                    print(f"  Progress:   {pct:.1f}%")
+            else:
+                print(f"  Completed: {completed}")
+                print(f"  Failed:    {failed}")
+                print(f"  Total:     {total}")
             
             if urls['completed']:
                 print(f"  Sample Completed URLs ({min(3, len(urls['completed']))}):")
@@ -683,6 +894,12 @@ def main():
                 print(f"  Failed URLs ({len(urls['failed'])}):")
                 for url in urls['failed'][:5]:
                     print(f"    ✗ {url}")
+            
+            # Show sample pending URLs if available
+            if progress['pending'] > 0 and progress['pending_urls']:
+                print(f"  Sample Pending URLs ({min(3, len(progress['pending_urls']))}):")
+                for url in progress['pending_urls'][:3]:
+                    print(f"    ⊙ {url}")
             
             print()
         
@@ -757,7 +974,7 @@ def main():
     for state_fips in state_list:
         successful, failed, not_found = download_county_data(
             state_fips, args.year, output_dir, type_list, args.parallel, 
-            args.timeout, download_state
+            args.timeout, download_state, discover_files=args.discover
         )
         total_successful += successful
         total_failed += failed
