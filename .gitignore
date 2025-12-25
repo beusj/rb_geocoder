@@ -1,12 +1,62 @@
-*.o
-*.so
-*.gem
-pkg/
-bin/shp2sqlite
-src/shp2sqlite/shp2sqlite
-src/liblwgeom/liblwgeom.a
-doc/*.html
-*.log
-
-# census data
+# data
+**/data/*
 *.zip
+*.csv
+*.tar.gz
+*.db
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+*.cover
+**/*log*
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Ruby (keep existing)
+*.gem
+.bundle/
+vendor/
+
+# Databases
+*.db
+*.sqlite
+*.sqlite3
+*.duckdb
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+venv/
+ENV/
