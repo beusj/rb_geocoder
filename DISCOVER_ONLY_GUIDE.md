@@ -54,10 +54,10 @@ python census/zip_dl.py --states 13 --resume
 ### Required Arguments for `--discover-only`
 
 - `--states`: One or more state FIPS codes (comma-separated)
-- `--types`: One or more dataset types (comma-separated)
 
 ### Optional Arguments
 
+- `--types`: One or more dataset types (comma-separated, defaults to EDGES,ADDR,FEATNAMES)
 - `--year`: Year to discover (default: 2024)
 - `--output`: Output directory (default: census/tiger)
 - `--state-file`: State database file (default: .tiger_download_state)
@@ -66,11 +66,11 @@ python census/zip_dl.py --states 13 --resume
 
 ## Examples
 
-### Example 1: Basic Discovery
+### Example 1: Basic Discovery (Using Defaults)
 
 ```bash
-# Discover EDGES and ADDR files for Delaware
-python census/zip_dl.py --discover-only --states 10 --types EDGES,ADDR
+# Discover files for Delaware using default types (EDGES, ADDR, FEATNAMES)
+python census/zip_dl.py --discover-only --states 10
 ```
 
 Output:
@@ -81,27 +81,37 @@ MODE: Discover-only (populating state database without downloading)
 Discovering files for Delaware (FIPS: 10)
 ======================================================================
 
-Total files discovered: 150
+Total files discovered: 225
 URLs populated in state database
 
 ======================================================================
 DISCOVERY SUMMARY
 ======================================================================
-Total URLs Discovered: 150
+Total URLs Discovered: 225
 States Processed:      1
-Elapsed Time:          5.2 seconds
+Elapsed Time:          7.8 seconds
 ```
 
-### Example 2: Multiple States and Types
+### Example 2: Discovery with Explicit Types
 
 ```bash
-# Discover multiple types for multiple states
+# Discover only EDGES and ADDR files for Delaware
+python census/zip_dl.py --discover-only --states 10 --types EDGES,ADDR
+```
+
+### Example 3: Multiple States and Types
+
+```bash
+# Discover multiple types for multiple states (using defaults)
+python census/zip_dl.py --discover-only --states 06,36,48
+
+# Or with explicit types
 python census/zip_dl.py --discover-only \
   --states 06,36,48 \
   --types EDGES,ADDR,FACES,FEATNAMES
 ```
 
-### Example 3: Using Custom Output Directory
+### Example 4: Using Custom Output Directory
 
 ```bash
 # Discover and specify custom state file location
@@ -112,11 +122,11 @@ python census/zip_dl.py --discover-only \
   --state-file /data/tiger/.download_state
 ```
 
-### Example 4: Complete Workflow
+### Example 5: Complete Workflow
 
 ```bash
-# Step 1: Discover files
-python census/zip_dl.py --discover-only --states 13 --types EDGES,ADDR
+# Step 1: Discover files (using default types)
+python census/zip_dl.py --discover-only --states 13
 
 # Step 2: Check what was discovered
 python census/zip_dl.py --show-status
@@ -222,7 +232,7 @@ python census/zip_dl.py --list-states
 ## Troubleshooting
 
 ### "Error: --discover-only requires --states to be specified"
-**Solution**: Always specify `--states` and `--types` with `--discover-only`
+**Solution**: Always specify `--states` with `--discover-only`. The `--types` parameter is optional and defaults to EDGES,ADDR,FEATNAMES if not provided.
 
 ### "Warning: Could not scrape directory"
 **Possible causes**:

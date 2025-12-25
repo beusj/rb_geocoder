@@ -15,7 +15,7 @@ Options:
     --year YEAR         Year to download (default: 2024)
     --output DIR        Output directory (default: census/tiger)
     --states STATE      Download specific state(s) (comma-separated FIPS codes)
-    --types TYPE        Download specific types (comma-separated)
+    --types TYPE        Download specific types (comma-separated, defaults to EDGES,ADDR,FEATNAMES with --discover-only)
     --list-types        List available dataset types
     --list-states       List all state FIPS codes
     --show-status       Show download status for all states/territories
@@ -29,7 +29,10 @@ Options:
     --timeout N         Download timeout in seconds (default: 60)
 
 Examples:
-    # Discover and populate URLs without downloading:
+    # Discover and populate URLs without downloading (defaults to EDGES,ADDR,FEATNAMES):
+    python zip_dl.py --discover-only --states 13
+    
+    # Discover and populate URLs with specific types:
     python zip_dl.py --discover-only --states 13 --types EDGES,ADDR
     
     # Check discovered URLs:
@@ -1045,11 +1048,6 @@ def main():
         print("Use --list-states to see valid state FIPS codes")
         return 1
     
-    if args.discover_only and not args.types:
-        print("Error: --discover-only requires --types to be specified")
-        print("Use --list-types to see valid dataset types")
-        return 1
-    
     # Determine which states to download
     if args.states:
         state_list = [s.strip().zfill(2) for s in args.states.split(',')]
@@ -1069,11 +1067,16 @@ def main():
         invalid = [t for t in type_list if t not in DATASET_TYPES]
         if invalid:
             print(f"Error: Invalid dataset types: {invalid}")
-            print("Use --list-types to see valid types")
+            print("Use --list-types to see valid dataset types")
             return 1
     else:
-        # Default to the most commonly used types for geocoding
-        type_list = COUNTY_LEVEL_TYPES
+        # Default types depend on mode
+        if args.discover_only:
+            # For discover-only mode, default to EDGES, ADDR, FEATNAMES
+            type_list = ['EDGES', 'ADDR', 'FEATNAMES']
+        else:
+            # For download mode, default to all county-level types
+            type_list = COUNTY_LEVEL_TYPES
     
     output_dir.mkdir(parents=True, exist_ok=True)
     

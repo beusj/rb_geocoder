@@ -254,5 +254,89 @@ class TestDiscoverOnly:
         assert 'https://example.com/file4.zip' in progress['pending_urls']
 
 
+class TestDiscoverOnlyDefaults:
+    """Test default behavior for --discover-only without --types."""
+    
+    def test_default_types_integration(self):
+        """Test that the main() function uses correct defaults for --discover-only without --types."""
+        import argparse
+        
+        # Simulate command-line arguments for --discover-only without --types
+        test_args = [
+            'zip_dl.py',
+            '--discover-only',
+            '--states', '10',
+            '--no-use-db'
+        ]
+        
+        # Parse arguments using the same parser as the main script
+        # We need to import and call the parser configuration
+        from census import zip_dl
+        
+        # Create a simple mock to test the argument parsing logic
+        with patch('sys.argv', test_args):
+            with patch('census.zip_dl.discover_and_populate_state') as mock_discover:
+                with patch('census.zip_dl.DownloadState') as mock_state_class:
+                    # Mock the state instance
+                    mock_state = MagicMock()
+                    mock_state_class.return_value = mock_state
+                    mock_discover.return_value = 0
+                    
+                    # Call main
+                    try:
+                        zip_dl.main()
+                    except SystemExit as e:
+                        # main() returns 0 for success
+                        assert e.code == 0
+                    
+                    # Verify discover_and_populate_state was called
+                    assert mock_discover.called
+                    
+                    # Get the call arguments (positional)
+                    call_args = mock_discover.call_args
+                    # call_args[0] contains positional arguments
+                    # Third positional argument (index 2) is dataset_types
+                    dataset_types = call_args[0][2]
+                    
+                    # Verify default types
+                    assert dataset_types == ['EDGES', 'ADDR', 'FEATNAMES']
+    
+    def test_explicit_types_override(self):
+        """Test that explicit --types overrides the default."""
+        import argparse
+        
+        # Simulate command-line arguments with explicit --types
+        test_args = [
+            'zip_dl.py',
+            '--discover-only',
+            '--states', '10',
+            '--types', 'EDGES,ADDR',
+            '--no-use-db'
+        ]
+        
+        from census import zip_dl
+        
+        with patch('sys.argv', test_args):
+            with patch('census.zip_dl.discover_and_populate_state') as mock_discover:
+                with patch('census.zip_dl.DownloadState') as mock_state_class:
+                    mock_state = MagicMock()
+                    mock_state_class.return_value = mock_state
+                    mock_discover.return_value = 0
+                    
+                    try:
+                        zip_dl.main()
+                    except SystemExit as e:
+                        assert e.code == 0
+                    
+                    # Get the call arguments (positional)
+                    call_args = mock_discover.call_args
+                    # call_args[0] contains positional arguments
+                    # Third positional argument (index 2) is dataset_types
+                    dataset_types = call_args[0][2]
+                    
+                    # Verify explicit types are used
+                    assert dataset_types == ['EDGES', 'ADDR']
+
+
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])
